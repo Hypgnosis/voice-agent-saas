@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Agent · AI Call Center</title>
+    <meta name="description" content="AI-powered multilingual voice agent">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div class="scene">
+        <!-- Ambient Orbs -->
+        <div class="orb orb--violet"></div>
+        <div class="orb orb--indigo"></div>
+        <div class="orb orb--rose"></div>
+
+        <!-- App Shell -->
+        <div class="shell">
+            <!-- Top Bar -->
+            <nav class="topbar">
+                <div class="topbar__brand">
+                    <div class="brand-mark">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                            <line x1="12" y1="19" x2="12" y2="23" />
+                            <line x1="8" y1="23" x2="16" y2="23" />
+                        </svg>
+                    </div>
+                    <span class="brand-name">Voice Agent</span>
+                    <span class="brand-badge">Gemini 3.0</span>
+                </div>
+                <div class="topbar__actions">
+                    <span class="clock" id="clock"></span>
+                    <div class="chip" id="statusChip">
+                        <span class="chip__dot"></span>
+                        <span class="chip__label">Ready</span>
+                    </div>
+                </div>
+            </nav>
+
+            <!-- Body -->
+            <div class="body">
+                <!-- Sidebar -->
+                <aside class="sidebar" id="sidebar">
+                    <div class="sidebar__section">
+                        <h3 class="sidebar__heading">Configuration</h3>
+                        <label class="field">
+                            <span class="field__label">Language Detection</span>
+                            <select id="langSelect" class="field__input">
+                                <option value="auto">Auto-detect</option>
+                                <option value="en-US">English</option>
+                                <option value="es-MX">Español (MX)</option>
+                                <option value="fr-FR">Français</option>
+                            </select>
+                        </label>
+                        <label class="field" style="margin-top: 10px;">
+                            <span class="field__label">Agent Mode</span>
+                            <select id="agentMode" class="field__input">
+                                <option value="customer">Customer Support</option>
+                                <option value="assistant">Doctor's Assistant</option>
+                            </select>
+                        </label>
+                        <label class="field">
+                            <span class="field__label">English Voice</span>
+                            <select id="voiceEn" class="field__input">
+                                <option value="en-US-AriaNeural">Aria · Warm</option>
+                                <option value="en-US-JennyNeural">Jenny · Pro</option>
+                                <option value="en-US-GuyNeural">Guy · Casual</option>
+                                <option value="en-US-DavisNeural">Davis · Deep</option>
+                            </select>
+                        </label>
+                        <label class="field">
+                            <span class="field__label">Spanish Voice</span>
+                            <select id="voiceEs" class="field__input">
+                                <option value="es-MX-DaliaNeural">Dalia · MX</option>
+                                <option value="es-MX-JorgeNeural">Jorge · MX</option>
+                                <option value="es-ES-ElviraNeural">Elvira · ES</option>
+                            </select>
+                        </label>
+                    </div>
+                    <div class="sidebar__section">
+                        <h3 class="sidebar__heading">Session</h3>
+                        <div class="kpi-row">
+                            <div class="kpi">
+                                <span class="kpi__value" id="kpiTime">0:00</span>
+                                <span class="kpi__label">Duration</span>
+                            </div>
+                            <div class="kpi">
+                                <span class="kpi__value" id="kpiMsgs">0</span>
+                                <span class="kpi__label">Messages</span>
+                            </div>
+                        </div>
+                    </div>
+                </aside>
+
+                <!-- Center Stage -->
+                <section class="stage">
+                    <canvas class="waveform" id="waveform"></canvas>
+
+                    <div class="mic-wrap" id="micWrap">
+                        <div class="mic-aura"></div>
+                        <button class="mic" id="micBtn" title="Start voice agent">
+                            <svg class="mic__icon" id="micSvg" width="36" height="36" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                                <line x1="12" y1="19" x2="12" y2="23" />
+                                <line x1="8" y1="23" x2="16" y2="23" />
+                            </svg>
+                            <svg class="mic__stop hidden" id="stopSvg" width="32" height="32" viewBox="0 0 24 24"
+                                fill="currentColor">
+                                <rect x="6" y="6" width="12" height="12" rx="3" />
+                            </svg>
+                        </button>
+                    </div>
+
+                    <p class="stage__label" id="stageLabel">Tap to start</p>
+                    <div class="eq hidden" id="eq"><span></span><span></span><span></span><span></span><span></span>
+                    </div>
+                </section>
+
+                <!-- Chat Panel -->
+                <section class="chat" id="chatPanel">
+                    <div class="chat__header">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                        </svg>
+                        <span>Live Transcript</span>
+                    </div>
+                    <div class="chat__messages" id="chatMessages">
+                        <div class="chat__empty" id="chatEmpty">
+                            <div class="chat__empty-icon">💬</div>
+                            <p>Speak into your mic to<br>start the conversation</p>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+    <script src="app.js"></script>
+</body>
+
+</html>
