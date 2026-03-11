@@ -662,6 +662,54 @@ def twilio_respond(slug):
 
 
 # ══════════════════════════════════════════════════════
+# AVAILABILITY CHECK (Make.com → Google Calendar)
+# ══════════════════════════════════════════════════════
+@app.route("/api/availability", methods=["POST"])
+def check_availability():
+    """
+    Checks available appointment slots for a given date by calling
+    the Make.com webhook, which queries Google Calendar.
+    
+    Expected JSON body: { "date": "2026-03-15" }
+    Returns: { "slots": ["09:00", "10:00", ...] }
+    """
+    import urllib.request
+    import urllib.error
+
+    webhook_url = os.environ.get("WEBHOOK_CHECK_AVAILABILITY")
+    if not webhook_url:
+        # Fallback slots if webhook not configured
+        return jsonify({"slots": ["09:00", "10:00", "14:00", "16:00"]})
+
+    data = request.get_json() or {}
+    date_str = data.get("date", datetime.now().strftime("%Y-%m-%d"))
+    business_slug = data.get("slug", "yo-te-cuido")
+
+    payload = json.dumps({"date": date_str, "slug": business_slug}).encode("utf-8")
+    req = urllib.request.Request(
+        webhook_url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            body = resp.read().decode("utf-8")
+            slots_data = json.loads(body)
+            # Make.com may return a list directly or wrapped in {"slots": [...]}
+            if isinstance(slots_data, list):
+                return jsonify({"slots": slots_data})
+            elif isinstance(slots_data, dict) and "slots" in slots_data:
+                return jsonify({"slots": slots_data["slots"]})
+            else:
+                return jsonify({"slots": slots_data})
+    except Exception as e:
+        print(f"[Availability] Webhook error: {e}")
+        # Return fallback slots on error so the agent can still book
+        return jsonify({"slots": ["09:00", "10:00", "14:00", "16:00"], "warning": str(e)})
+
+
+# ══════════════════════════════════════════════════════
 #  START SERVER
 # ══════════════════════════════════════════════════════
 
