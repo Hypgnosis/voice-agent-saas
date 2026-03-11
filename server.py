@@ -695,15 +695,26 @@ def check_availability():
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             body = resp.read().decode("utf-8")
-            slots_data = json.loads(body)
-            # Make.com may return a list directly or wrapped in {"slots": [...]}
-            if isinstance(slots_data, list):
-                return jsonify({"slots": slots_data})
-            elif isinstance(slots_data, dict) and "slots" in slots_data:
-                return jsonify({"slots": slots_data["slots"]})
-            else:
-                return jsonify({"slots": slots_data})
-    except Exception as e:
+                            data = json.loads(body)
+                # New format: {"busy": [{"start":..., "end":...}]} from Google Calendar
+                if isinstance(data, dict) and "busy" in data:
+                    all_slots = ["09:00", "10:00", "11:00", "14:00", "15:00", "16:00"]
+                    busy_hours = set()
+                    for evt in data["busy"]:
+                        start = evt.get("start", "")
+                        if "T" in start:
+                            hour = start.split("T")[1][:5]
+                            busy_hours.add(hour)
+                    free = [s for s in all_slots if s not in busy_hours]
+                    return jsonify({"slots": free or all_slots})
+                # Legacy format: {"slots": [...]} or [...]
+                elif isinstance(data, list):
+                    return jsonify({"slots": data})
+                elif isinstance(data, dict) and "slots" in data:
+                    return jsonify({"slots": data["slots"]})
+                else:
+                    return jsonify({"slots": data})
+        except Exception as e:
         print(f"[Availability] Webhook error: {e}")
         # Return fallback slots on error so the agent can still book
         return jsonify({"slots": ["09:00", "10:00", "14:00", "16:00"], "warning": str(e)})
