@@ -22,6 +22,7 @@ class Agent {
         this.analyser = null;
         this.rafId = null;
         this.muted = true; // Start muted to satisfy browser policies
+        this.agentAudio = new Audio(); // Reusable audio element for TTS to bypass autoplay blocks
 
         // DOM
         this.$ = id => document.getElementById(id);
@@ -68,6 +69,13 @@ class Agent {
         if (this.audioCtx.state === 'suspended') {
             await this.audioCtx.resume();
         }
+        
+        // Unlock HTML5 Audio during user gesture
+        if (this.agentAudio.src === '' || !this.agentAudio.src) {
+            this.agentAudio.src = 'data:audio/mp3;base64,'; // tiny blank payload
+            this.agentAudio.play().catch(() => {});
+        }
+
         this.muted = false;
         this.updateSoundUI();
     }
@@ -357,26 +365,32 @@ class Agent {
             this.setLabel('Click speaker to unmute');
             return Promise.resolve();
         }
+        
         return new Promise((resolve) => {
             const audioUrl = url.startsWith('http') ? url : (API || window.location.origin) + url;
             console.log('Playing audio:', audioUrl);
-            const audio = new Audio(audioUrl);
-
+            
+            // Reuse the permanently unlocked audio element
+            this.agentAudio.src = audioUrl;
+            this.agentAudio.load();
+            
             // Helpful for debugging audio issues in production
-            audio.addEventListener('canplaythrough', () => console.log('Audio loaded successfully'), { once: true });
-
-            audio.onended = () => {
+            this.agentAudio.addEventListener('canplaythrough', () => console.log('Audio loaded successfully'), { once: true });
+            
+            this.agentAudio.onended = () => {
                 console.log('Audio playback finished');
                 resolve();
             };
-
-            audio.onerror = (e) => {
+            
+            this.agentAudio.onerror = (e) => {
                 console.error('Audio playback error:', e);
                 this.setLabel('⚠️ Audio error');
                 resolve();
             };
 
-            audio.play().catch(err => {
+            this.agentAudio.play().then(() => {
+                console.log('Autoplay successfully started');
+            }).catch(err => {
                 console.warn('Autoplay blocked or playback failed:', err);
                 this.muted = true;
                 this.updateSoundUI();
