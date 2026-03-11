@@ -70,10 +70,10 @@ class Agent {
             await this.audioCtx.resume();
         }
         
-        // Unlock HTML5 Audio during user gesture
-        if (this.agentAudio.src === '' || !this.agentAudio.src) {
-            this.agentAudio.src = 'data:audio/mp3;base64,'; // tiny blank payload
-            this.agentAudio.play().catch(() => {});
+        // Unlock HTML5 Audio during user gesture with a valid silent WAV
+        if (!this.agentAudio.src || this.agentAudio.src === window.location.href) {
+            this.agentAudio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+            this.agentAudio.play().catch(e => console.warn('Audio unlock failed:', e));
         }
 
         this.muted = false;
