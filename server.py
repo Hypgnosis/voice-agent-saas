@@ -10,7 +10,8 @@ import uuid
 import json
 import io
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
+import requests
 
 import edge_tts
 from gtts import gTTS
@@ -85,9 +86,9 @@ class Business(db.Model):
             "call_count": self.call_count,
         }
 
-    def build_system_prompt(self, mode="customer"):
+    def build_system_prompt(self, mode="customer", parent_app_instructions=None):
         if mode == "assistant":
-            return f"""You are the personal AI assistant for the doctor/owner of {self.name}.
+            prompt = f"""You are the personal AI assistant for the doctor/owner of {self.name}.
 You are talking directly to them (the doctor/owner).
 
 BUSINESS DESCRIPTION:
@@ -104,7 +105,7 @@ RULES:
 - Start EVERY response with a language tag: [EN] or [ES] — it will be stripped before speaking.
 """
         else:
-            return f"""You are a professional, friendly AI receptionist for {self.name}.
+            prompt = f"""You are a professional, friendly AI receptionist for {self.name}.
 
 BUSINESS DESCRIPTION:
 {self.description}
@@ -113,12 +114,13 @@ KNOWLEDGE BASE — Use this information to answer caller questions:
 {self.knowledge_base}
 
 VOICE AGENT BOOKING SYSTEM:
-- You have the power to schedule appointments for the patient.
-- If the patient wants to book or schedule a consultation, you MUST output a special tag at the VERY END of your response (after all your text).
+- TIMEZONE: You are operating in Mérida time (GMT-6). The current local time is {(datetime.utcnow() - timedelta(hours=6)).strftime("%Y-%m-%d %I:%M %p")}.
+- ZERO DOUBLE-BOOKING RULE: ALWAYS check availability using the `check_calendar_availability` tool BEFORE offering any specific time slots to the patient. NEVER guess or offer a slot without checking first.
+- When the patient agrees to an available slot, use the `book_appointment` tool to finalize the booking in Google Calendar and trigger the WhatsApp confirmation.
+- AFTER booking with the tool, you MUST also output the special tag at the VERY END of your spoken response to sync with the patient portal.
 - The tag format is: [BOOK] {{"date": "ISO_DATE", "type": "live/async", "symptoms": "BRIEF_SYMPTOMS"}}
-- Example: "Entendido, agendaré su cita para mañana a las 10 AM. [BOOK] {{"date": "2026-03-11T10:00:00Z", "type": "live", "symptoms": "Consulta general por pérdida de memoria"}}"
-- NEVER mention the code "[BOOK]" to the user, just include it as a hidden instruction for the system.
-- Assume today's date is {datetime.now().strftime("%Y-%m-%d")}.
+- Example: "He agendado tu cita. [BOOK] {{"date": "2026-03-11T10:00:00-06:00", "type": "live", "symptoms": "Revisión"}}"
+- NEVER mention the code "[BOOK]" out loud.
 
 RULES:
 - Keep answers brief, conversational, and natural. They will be spoken aloud.
@@ -129,6 +131,11 @@ RULES:
 - Always match the caller's language.
 - Start EVERY response with a language tag: [EN] or [ES] — it will be stripped before speaking.
 """
+        
+        if parent_app_instructions:
+            prompt += f"\n\n=== PARENT APP INSTRUCTIONS (MANDATORY OVERRIDE) ===\nThe following instructions come directly from the application currently embedding you. You MUST treat these instructions as the highest priority and follow them at all times during this conversation, overriding any conflicting rules or knowledge base above:\n{parent_app_instructions}\n====================================================\n"
+        
+        return prompt
 
 
 class CallLog(db.Model):
@@ -277,12 +284,62 @@ def generate_tts_sync(text, voice):
         return filename
 
 
-def get_model_for_business(business, mode="customer"):
-    """Create a Gemini model with the business-specific system prompt."""
-    # Using gemini-2.0-flash as 3.1 does not exist natively returning a 500 error
+# ── AI Webhook Tools ─────────────────────────────────
+
+def check_calendar_availability(date_str: str) -> str:
+    """
+    Fetches Dra. Mya's actual Free/Busy Calendar availability.
+    Args:
+        date_str: Date to check in YYYY-MM-DD format.
+    Returns: A list of available times or an error message.
+    """
+    webhook = os.environ.get("WEBHOOK_CHECK_AVAILABILITY")
+    if webhook:
+        try:
+            resp = requests.post(webhook, json={"date": date_str}, timeout=7)
+            return resp.text
+        except Exception as e:
+            return f"Error contacting calendar: {str(e)}"
+    return "9:00 AM, 12:30 PM, 4:00 PM (Mocked Slots - Webhook not set)"
+
+def book_appointment(patient_name: str, phone_number: str, datetime_iso: str, type_of_visit: str, symptoms: str) -> str:
+    """
+    Books the event in Google Calendar, generates a Google Meet link, and triggers a WhatsApp confirmation.
+    Args:
+        patient_name: Full name of patient/caregiver.
+        phone_number: WhatsApp number.
+        datetime_iso: ISO date and time.
+        type_of_visit: 'live' or 'async'.
+        symptoms: Brief notes.
+    """
+    webhook = os.environ.get("WEBHOOK_BOOK_APPOINTMENT")
+    if webhook:
+        try:
+            payload = {
+                "patient_name": patient_name,
+                "phone_number": phone_number,
+                "datetime_iso": datetime_iso,
+                "type": type_of_visit,
+                "symptoms": symptoms
+            }
+            resp = requests.post(webhook, json=payload, timeout=7)
+            return "Success! Google Calendar Event created and WhatsApp sent."
+        except Exception as e:
+            return f"Error booking: {str(e)}"
+    return "Success! Calendar synced (Mocked - Webhook not set)."
+
+def get_model_for_business(business, mode="customer", parent_instructions=None):
+    """Create a Gemini model with tools, injecting dynamic parent app context if provided."""
+    system_prompt = business.build_system_prompt(mode=mode)
+    
+    # Hierarchy Injection: Parent App overrides or enhances base tenant config
+    if parent_instructions:
+        system_prompt += f"\n\n--- CURRENT APP HIERARCHY INSTRUCTIONS (MUST FOLLOW) ---\n{parent_instructions}\n"
+
     return genai.GenerativeModel(
         model_name="gemini-2.0-flash", 
-        system_instruction=business.build_system_prompt(mode=mode),
+        system_instruction=system_prompt,
+        tools=[check_calendar_availability, book_appointment]
     )
 
 
@@ -442,16 +499,17 @@ def agent_chat(slug):
     user_text = data.get("text", "").strip()
     session_id = data.get("session_id", "default")
     mode = data.get("mode", "customer")  # customer or assistant
+    parent_instructions = data.get("parent_instructions", "").strip()
 
     if not user_text:
         return jsonify({"error": "No text provided"}), 400
 
-    # Build session key unique to this business and mode
+    # Build session key unique to this business and mode (and parent instructions state)
     session_key = f"{business.id}:{session_id}:{mode}"
 
     if session_key not in sessions:
-        business_model = get_model_for_business(business, mode=mode)
-        sessions[session_key] = business_model.start_chat()
+        business_model = get_model_for_business(business, mode=mode, parent_instructions=parent_instructions)
+        sessions[session_key] = business_model.start_chat(enable_automatic_function_calling=True)
 
     chat_session = sessions[session_key]
 

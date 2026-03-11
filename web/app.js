@@ -14,8 +14,18 @@ class Agent {
         this.msgCount = 0;
         this.startTime = null;
 
-        // Get business slug from URL: ?business=sunshine-pets
+        // Get business slug and instructions from URL: ?business=sunshine-pets&instructions=...
         this.slug = new URLSearchParams(window.location.search).get('business') || null;
+        this.parentInstructions = new URLSearchParams(window.location.search).get('instructions') || ''; 
+        
+        // Allow updating parent instructions dynamically via postMessage
+        window.addEventListener('message', (e) => {
+            if (e.data && e.data.type === 'SET_INSTRUCTIONS') {
+                this.parentInstructions = e.data.payload;
+                console.log('Received parent app instructions:', this.parentInstructions);
+            }
+        });
+
         this.timer = null;
         this.stream = null;
         this.audioCtx = null;
@@ -335,6 +345,7 @@ class Agent {
                     mode: this.$('agentMode') ? this.$('agentMode').value : 'customer',
                     voice_en: this.$('voiceEn').value,
                     voice_es: this.$('voiceEs').value,
+                    parent_app_instructions: this.parentInstructions
                 })
             });
 
@@ -541,5 +552,15 @@ class Agent {
         }
     }
 }
+
+// Handle cross-frame message injection of specific parent app knowledge/instructions
+window.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'SET_INSTRUCTIONS') {
+        if (window.agent) {
+            window.agent.parentInstructions = e.data.payload;
+            console.log('Received parent app instructions for context injection');
+        }
+    }
+});
 
 document.addEventListener('DOMContentLoaded', () => { window.agent = new Agent(); });
