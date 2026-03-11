@@ -328,24 +328,14 @@ def book_appointment(patient_name: str, phone_number: str, datetime_iso: str, ty
             return f"Error booking: {str(e)}"
     return "Success! Calendar synced (Mocked - Webhook not set)."
 
-def get_model_for_business(business, mode="customer", parent_instructions=None):
+def get_model_for_business(business, mode="customer", parent_app_instructions=None):
     """Create a Gemini model with tools, injecting dynamic parent app context if provided."""
-    system_prompt = business.build_system_prompt(mode=mode)
-    
-    # Hierarchy Injection: Parent App overrides or enhances base tenant config
-    if parent_instructions:
-        system_prompt += f"\n\n--- CURRENT APP HIERARCHY INSTRUCTIONS (MUST FOLLOW) ---\n{parent_instructions}\n"
-
     return genai.GenerativeModel(
         model_name="gemini-2.0-flash", 
-        system_instruction=system_prompt,
+        system_instruction=business.build_system_prompt(mode=mode, parent_app_instructions=parent_app_instructions),
         tools=[check_calendar_availability, book_appointment]
     )
 
-
-# ══════════════════════════════════════════════════════
-#  WEB UI ROUTES
-# ══════════════════════════════════════════════════════
 
 # ══════════════════════════════════════════════════════
 #  WEB UI ROUTES
@@ -499,7 +489,7 @@ def agent_chat(slug):
     user_text = data.get("text", "").strip()
     session_id = data.get("session_id", "default")
     mode = data.get("mode", "customer")  # customer or assistant
-    parent_instructions = data.get("parent_instructions", "").strip()
+    parent_app_instructions = data.get("parent_app_instructions", "").strip()
 
     if not user_text:
         return jsonify({"error": "No text provided"}), 400
@@ -508,7 +498,7 @@ def agent_chat(slug):
     session_key = f"{business.id}:{session_id}:{mode}"
 
     if session_key not in sessions:
-        business_model = get_model_for_business(business, mode=mode, parent_instructions=parent_instructions)
+        business_model = get_model_for_business(business, mode=mode, parent_app_instructions=parent_app_instructions)
         sessions[session_key] = business_model.start_chat(enable_automatic_function_calling=True)
 
     chat_session = sessions[session_key]
@@ -753,26 +743,26 @@ def check_availability():
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             body = resp.read().decode("utf-8")
-                            data = json.loads(body)
-                # New format: {"busy": [{"start":..., "end":...}]} from Google Calendar
-                if isinstance(data, dict) and "busy" in data:
-                    all_slots = ["09:00", "10:00", "11:00", "14:00", "15:00", "16:00"]
-                    busy_hours = set()
-                    for evt in data["busy"]:
-                        start = evt.get("start", "")
-                        if "T" in start:
-                            hour = start.split("T")[1][:5]
-                            busy_hours.add(hour)
-                    free = [s for s in all_slots if s not in busy_hours]
-                    return jsonify({"slots": free or all_slots})
-                # Legacy format: {"slots": [...]} or [...]
-                elif isinstance(data, list):
-                    return jsonify({"slots": data})
-                elif isinstance(data, dict) and "slots" in data:
-                    return jsonify({"slots": data["slots"]})
-                else:
-                    return jsonify({"slots": data})
-        except Exception as e:
+            data = json.loads(body)
+            # New format: {"busy": [{"start":..., "end":...}]} from Google Calendar
+            if isinstance(data, dict) and "busy" in data:
+                all_slots = ["09:00", "10:00", "11:00", "14:00", "15:00", "16:00"]
+                busy_hours = set()
+                for evt in data["busy"]:
+                    start = evt.get("start", "")
+                    if "T" in start:
+                        hour = start.split("T")[1][:5]
+                        busy_hours.add(hour)
+                free = [s for s in all_slots if s not in busy_hours]
+                return jsonify({"slots": free or all_slots})
+            # Legacy format: {"slots": [...]} or [...]
+            elif isinstance(data, list):
+                return jsonify({"slots": data})
+            elif isinstance(data, dict) and "slots" in data:
+                return jsonify({"slots": data["slots"]})
+            else:
+                return jsonify({"slots": data})
+    except Exception as e:
         print(f"[Availability] Webhook error: {e}")
         # Return fallback slots on error so the agent can still book
         return jsonify({"slots": ["09:00", "10:00", "14:00", "16:00"], "warning": str(e)})
