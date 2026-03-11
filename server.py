@@ -9,6 +9,7 @@ import asyncio
 import uuid
 import json
 import io
+import re
 from datetime import datetime
 
 import edge_tts
@@ -110,6 +111,14 @@ BUSINESS DESCRIPTION:
 KNOWLEDGE BASE — Use this information to answer caller questions:
 {self.knowledge_base}
 
+VOICE AGENT BOOKING SYSTEM:
+- You have the power to schedule appointments for the patient.
+- If the patient wants to book or schedule a consultation, you MUST output a special tag at the VERY END of your response (after all your text).
+- The tag format is: [BOOK] {{"date": "ISO_DATE", "type": "live/async", "symptoms": "BRIEF_SYMPTOMS"}}
+- Example: "Entendido, agendaré su cita para mañana a las 10 AM. [BOOK] {{"date": "2026-03-11T10:00:00Z", "type": "live", "symptoms": "Consulta general por pérdida de memoria"}}"
+- NEVER mention the code "[BOOK]" to the user, just include it as a hidden instruction for the system.
+- Assume today's date is {datetime.now().strftime("%Y-%m-%d")}.
+
 RULES:
 - Keep answers brief, conversational, and natural. They will be spoken aloud.
 - Do NOT use emojis, markdown, or special formatting.
@@ -137,6 +146,44 @@ with app.app_context():
 
     # Seed a demo business if none exist
     if Business.query.count() == 0:
+        # Dra. Mya - Consultorio Virtual
+        mya = Business(
+            name="Dra. Mya - Consultorio Virtual",
+            slug="yo-te-cuido",
+            description="""Dra. Mya - Consultorio Virtual is a specialized medical practice dedicated to the comprehensive care and management of patients with Alzheimer's and other dementias. Our mission is to facilitate access to highly specialized medical care through an innovative telemedicine platform, allowing families to manage their loved ones' health from the safety and comfort of their homes. We combine human warmth with technological flexibility, offering both live video consultations and asynchronous video reviews for continuous monitoring.""",
+            knowledge_base="""AGENT PERSONA & TONE:
+- Tone: Highly empathetic, patient, professional, and reassuring.
+- Context: Callers are family members who are often stressed, exhausted, or overwhelmed.
+- Tech-Patience: Callers may be older adults who are not tech-savvy. Act as "Tech Enablers."
+- Core Selling Point: "Nuestra plataforma está diseñada para que usted no tenga que trasladar al paciente." (Our platform is designed so you don't have to move the patient).
+
+CORE SERVICES:
+1. Consulta en Vivo (Live Video Consultation): Face-to-face video call with Dra. Mya in real-time. Best for diagnosis, Q&A, and treatment plans.
+2. Revisión de Video (Asynchronous Video Review): Caregiver records a video of patient behaviors, uploads it, and Dra. Mya reviews it later. Best for uncooperative patients or capturing specific behavioral episodes.
+
+MENU OPTIONS:
+1️⃣ Agendar una Videollamada en Vivo.
+2️⃣ Enviar un Video para Revisión (Consulta asíncrona).
+3️⃣ Ayuda para Registrarme (First time on platform).
+4️⃣ Hablar con un Humano (Specific or technical help).
+
+ONBOARDING STEPS:
+1. Registro: Account creation at casarecuerdo.com.
+2. Solicitud: Choose Live or Video Review.
+3. Gestión: Patient dashboard to view appointments or upload files.
+- Mention the "green button" to 'Abrir App en pantalla completa'.
+
+FAQ & OBJECTIONS:
+- "I'm not good with tech": "No se preocupe, la plataforma es muy intuitiva. Si gusta, me quedo en la línea y le guío paso a paso."
+- "I prefer in-person": "Lo entiendo. Sin embargo, en pacientes con Alzheimer, el traslado genera estrés. Nuestra plataforma permite evaluar al familiar en su entorno natural, resultando en un diagnóstico más certero."
+""",
+            greeting="""Hola, bienvenido(a) a Dra. Mya - Consultorio Virtual 🏠💜. Soy tu asistente virtual. Entendemos lo importante que es para ti el cuidado de la memoria de tu ser querido. Estoy aquí para facilitarte el contacto con la Dra. Mya y que recibas atención especializada en Alzheimer y demencias sin salir de casa.""",
+            voice_es="es-MX-DaliaNeural",
+            language="es-MX",
+        )
+        db.session.add(mya)
+
+        # Keep a secondary demo for variety
         demo = Business(
             name="Sunshine Pet Grooming",
             slug="sunshine-pets",
@@ -155,51 +202,13 @@ HOURS:
 
 LOCATION: 123 Main Street, Downtown
 PHONE: (555) 123-4567
-BOOKING: Walk-ins welcome, appointments recommended. Book online at www.sunshinepets.com
-
-FAQ:
-- We accept all breeds and sizes
-- First-time customers get 15% off
-- We use hypoallergenic, organic products
-- Free bandana with every full groom!""",
+BOOKING: Walk-ins welcome, appointments recommended. Book online at www.sunshinepets.com""",
             greeting="Thank you for calling Sunshine Pet Grooming! How can I help you today?",
         )
         db.session.add(demo)
-
-        demo2 = Business(
-            name="Dr. García Dental Clinic",
-            slug="garcia-dental",
-            description="Clínica dental familiar con más de 15 años de experiencia. Ofrecemos servicios de odontología general y cosmética.",
-            knowledge_base="""SERVICIOS Y PRECIOS:
-- Limpieza dental: $800 MXN
-- Blanqueamiento: $3,500 MXN
-- Extracción simple: $1,200 MXN
-- Corona dental: $5,000 MXN
-- Ortodoncia (brackets): desde $15,000 MXN
-- Carillas de porcelana: $7,000 MXN por pieza
-
-HORARIO:
-- Lunes a Viernes: 9:00 AM - 7:00 PM
-- Sábado: 9:00 AM - 2:00 PM
-- Domingo: Cerrado
-
-DIRECCIÓN: Av. Reforma 456, Col. Centro
-TELÉFONO: (333) 456-7890
-
-INFORMACIÓN ADICIONAL:
-- Aceptamos la mayoría de seguros dentales
-- Primera consulta y diagnóstico GRATIS
-- Planes de pago a meses sin intereses
-- Contamos con tecnología de rayos X digital
-- Estacionamiento gratuito para pacientes""",
-            greeting="Gracias por llamar a la Clínica Dental del Dr. García. ¿En qué le podemos ayudar?",
-            voice_en="en-US-AriaNeural",
-            voice_es="es-MX-DaliaNeural",
-            language="auto",
-        )
-        db.session.add(demo2)
         db.session.commit()
-        print("✅ Created demo businesses")
+        print("✅ Created Dra. Mya and Sunshine businesses")
+
 
 
 # ── Chat sessions ────────────────────────────────────
@@ -270,9 +279,23 @@ def get_model_for_business(business, mode="customer"):
 #  WEB UI ROUTES
 # ══════════════════════════════════════════════════════
 
+# ══════════════════════════════════════════════════════
+#  WEB UI ROUTES
+# ══════════════════════════════════════════════════════
+
 @app.route("/")
-def index():
-    return send_from_directory("web", "index.html")
+def index_redirect():
+    # Primary view is now the Admin Panel
+    return send_from_directory("web", "admin.html")
+
+@app.route("/chat")
+def index_chat():
+    # Legacy home is now /chat
+    return send_from_directory(app.static_folder, "index.html")
+
+@app.route("/health")
+def health():
+    return jsonify({"status": "ok", "timestamp": datetime.now().isoformat()}), 200
 
 @app.route("/admin")
 def admin():
@@ -320,7 +343,11 @@ def extract_doc_text():
 
 @app.route("/api/businesses", methods=["GET"])
 def list_businesses():
-    businesses = Business.query.order_by(Business.created_at.desc()).all()
+    # Order by Dra Mya first if exists
+    businesses = Business.query.order_by(Business.slug == 'yo-te-cuido').all()
+    # SQLAlchemy order_by with boolean is weird, let's just do it in python or use a better way
+    businesses = Business.query.all()
+    businesses.sort(key=lambda x: x.slug != 'yo-te-cuido') # yo-te-cuido first
     return jsonify([b.to_dict() for b in businesses])
 
 
@@ -388,6 +415,7 @@ def get_call_logs(bid):
     } for l in logs])
 
 
+
 # ══════════════════════════════════════════════════════
 #  VOICE AGENT API (per-business)
 # ══════════════════════════════════════════════════════
@@ -424,6 +452,18 @@ def agent_chat(slug):
         traceback.print_exc()
         return jsonify({"error": f"AI error: {str(e)}"}), 500
 
+    # Extract [BOOK] data if present
+    book_data = None
+    book_match = re.search(r'\[BOOK\]\s*(\{.*?\})', response_text, re.DOTALL)
+    if book_match:
+        try:
+            book_json_str = book_match.group(1)
+            book_data = json.loads(book_json_str)
+            # Remove the tag from the spoken text
+            response_text = re.sub(r'\[BOOK\]\s*\{.*?\}', '', response_text, flags=re.DOTALL).strip()
+        except Exception as e:
+            print(f"Error parsing BOOK tag: {e}")
+
     lang_tag, clean_text = parse_lang_tag(response_text)
     # Double-check: even if tag says EN, if the text is actually Spanish, use Spanish voice
     if lang_tag != "ES" and detect_spanish(clean_text):
@@ -457,6 +497,7 @@ def agent_chat(slug):
         "voice": voice,
         "audio_url": audio_url,
         "business_name": business.name,
+        "book_data": book_data,
     })
 
 
@@ -626,4 +667,5 @@ if __name__ == "__main__":
             print(f"  📋 {b.name} → /agent/{b.slug}")
         print("=" * 55)
 
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)

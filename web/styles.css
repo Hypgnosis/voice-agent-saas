@@ -203,6 +203,28 @@ select {
     font-variant-numeric: tabular-nums
 }
 
+.sound-ctrl {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: var(--bg-input);
+    color: var(--text-2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all .2s;
+}
+
+.sound-ctrl:hover {
+    background: var(--bg-hover);
+    color: var(--violet-500);
+}
+
+.sound-ctrl.muted {
+    background: rgba(239, 68, 68, .08);
+    color: #ef4444;
+}
+
 .chip {
     display: flex;
     align-items: center;
@@ -325,6 +347,7 @@ select {
     outline: none;
     transition: all .2s ease;
     -webkit-appearance: none;
+    appearance: none;
 }
 
 .field__input:focus {

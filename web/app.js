@@ -21,6 +21,7 @@ class Agent {
         this.audioCtx = null;
         this.analyser = null;
         this.rafId = null;
+        this.muted = true; // Start muted to satisfy browser policies
 
         // DOM
         this.$ = id => document.getElementById(id);
@@ -35,21 +36,52 @@ class Agent {
         this.chatEmpty = this.$('chatEmpty');
         this.waveform = this.$('waveform');
         this.waveCtx = this.waveform.getContext('2d');
+        this.clock = this.$('clock');
+        this.soundBtn = this.$('soundToggle');
+        this.soundOn = this.$('soundOnSvg');
+        this.soundOff = this.$('soundOffSvg');
         this.kpiTime = this.$('kpiTime');
         this.kpiMsgs = this.$('kpiMsgs');
-        this.clock = this.$('clock');
 
         this.init();
     }
 
     init() {
-        this.micBtn.addEventListener('click', () => this.toggle());
+        this.micBtn.addEventListener('click', () => {
+            this.resumeAudio();
+            this.toggle();
+        });
+        this.soundBtn.addEventListener('click', () => this.toggleSound());
+
         this.tick();
         this.drawIdle();
         setInterval(() => this.tick(), 1000);
 
         // Load business info if slug is provided
         if (this.slug) this.loadBusinessInfo();
+    }
+
+    async resumeAudio() {
+        if (!this.audioCtx) {
+            this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (this.audioCtx.state === 'suspended') {
+            await this.audioCtx.resume();
+        }
+        this.muted = false;
+        this.updateSoundUI();
+    }
+
+    toggleSound() {
+        this.muted = !this.muted;
+        if (!this.muted) this.resumeAudio();
+        this.updateSoundUI();
+    }
+
+    updateSoundUI() {
+        this.soundBtn.classList.toggle('muted', this.muted);
+        this.soundOn.classList.toggle('hidden', this.muted);
+        this.soundOff.classList.toggle('hidden', !this.muted);
     }
 
     async loadBusinessInfo() {
@@ -94,7 +126,13 @@ class Agent {
         }
 
         // Audio context for visualizer
-        this.audioCtx = new AudioContext();
+        if (!this.audioCtx) {
+            this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (this.audioCtx.state === 'suspended') {
+            await this.audioCtx.resume();
+        }
+
         const src = this.audioCtx.createMediaStreamSource(this.stream);
         this.analyser = this.audioCtx.createAnalyser();
         this.analyser.fftSize = 256;
@@ -289,6 +327,17 @@ class Agent {
                 return;
             }
 
+            // CALENDAR INTEGRATION: Relay booking data to the main app dashboard (Dra. Mya App)
+            if (data.book_data) {
+                console.log('Booking intent detected, sending to parent dashboard...', data.book_data);
+                if (window.parent !== window) {
+                    window.parent.postMessage({
+                        type: 'BOOK_APPOINTMENT',
+                        payload: data.book_data
+                    }, '*');
+                }
+            }
+
             this.addBubble('agent', data.text);
 
             if (data.audio_url) {
@@ -303,11 +352,37 @@ class Agent {
     }
 
     playAudio(url) {
+        if (this.muted) {
+            console.warn('Audio is muted. User must interact to enable sound.');
+            this.setLabel('Click speaker to unmute');
+            return Promise.resolve();
+        }
         return new Promise((resolve) => {
-            const audio = new Audio(url);
-            audio.onended = resolve;
-            audio.onerror = () => { console.error('Audio playback error'); resolve(); };
-            audio.play().catch(() => resolve());
+            const audioUrl = url.startsWith('http') ? url : (API || window.location.origin) + url;
+            console.log('Playing audio:', audioUrl);
+            const audio = new Audio(audioUrl);
+
+            // Helpful for debugging audio issues in production
+            audio.addEventListener('canplaythrough', () => console.log('Audio loaded successfully'), { once: true });
+
+            audio.onended = () => {
+                console.log('Audio playback finished');
+                resolve();
+            };
+
+            audio.onerror = (e) => {
+                console.error('Audio playback error:', e);
+                this.setLabel('⚠️ Audio error');
+                resolve();
+            };
+
+            audio.play().catch(err => {
+                console.warn('Autoplay blocked or playback failed:', err);
+                this.muted = true;
+                this.updateSoundUI();
+                this.setLabel('Click speaker to unmute');
+                resolve();
+            });
         });
     }
 

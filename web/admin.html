@@ -427,7 +427,7 @@
                     bases</p>
             </div>
             <div class="topbar-actions">
-                <a href="/" class="btn btn-secondary">← Agent UI</a>
+                <a href="/chat" class="btn btn-secondary">← Agent UI</a>
                 <button class="btn btn-primary" onclick="openModal()">+ Add Business</button>
             </div>
         </div>
@@ -556,7 +556,7 @@
                     <span class="card-stat">🌐 ${esc(b.language)}</span>
                 </div>
                 <div class="card-actions">
-                    <a href="/?business=${b.slug}" class="agent-link">🎤 Test Agent</a>
+                    <a href="/chat?business=${b.slug}" class="agent-link">🎤 Test Agent</a>
                     <button class="btn btn-sm btn-secondary" onclick="embedBusiness('${b.slug}', '${esc(b.name)}')">&lt;/&gt; Embed</button>
                     <button class="btn btn-sm btn-secondary" onclick="editBusiness('${b.id}')">✏️ Edit</button>
                     <button class="btn btn-sm btn-secondary" onclick="viewLogs('${b.id}','${esc(b.name)}')">📊 Logs</button>
@@ -689,7 +689,7 @@
             // Get the current base URL (e.g., https://yourdomain.com) of the deployed app
             const baseUrl = window.location.origin;
             const embedCode = `<iframe 
-    src="${baseUrl}/?business=${slug}" 
+    src="${baseUrl}/chat?business=${slug}" 
     width="100%" 
     height="600" 
     style="border: none; border-radius: 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.08);"
