@@ -75,6 +75,13 @@ class Agent {
             this.agentAudio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
             this.agentAudio.play().catch(e => console.warn('Audio unlock failed:', e));
         }
+        
+        // Unlock Browser native TTS
+        if ('speechSynthesis' in window) {
+            const utterance = new SpeechSynthesisUtterance('');
+            utterance.volume = 0;
+            window.speechSynthesis.speak(utterance);
+        }
 
         this.muted = false;
         this.updateSoundUI();
@@ -301,6 +308,9 @@ class Agent {
             if (data.audio_url) {
                 this.addBubble('agent', data.text);
                 await this.playAudio(data.audio_url);
+            } else {
+                this.addBubble('agent', data.text);
+                await this.playBrowserTTS(data.text, 'es-MX'); // Assuming Spanish greeting for Dra Mya
             }
         } catch (e) {
             console.error('Greeting error:', e);
@@ -352,6 +362,10 @@ class Agent {
                 this.setLabel('🔊 Speaking...');
                 this.setChip('active', 'Speaking');
                 await this.playAudio(data.audio_url);
+            } else {
+                this.setLabel('🔊 Speaking...');
+                this.setChip('active', 'Speaking');
+                await this.playBrowserTTS(data.text, data.language || 'EN');
             }
         } catch (e) {
             console.error('Chat error:', e);
@@ -397,6 +411,45 @@ class Agent {
                 this.setLabel('Click speaker to unmute');
                 resolve();
             });
+        });
+    }
+
+    playBrowserTTS(text, lang) {
+        if (!('speechSynthesis' in window)) return Promise.resolve();
+        
+        return new Promise(resolve => {
+            const synth = window.speechSynthesis;
+            const utter = new SpeechSynthesisUtterance(text);
+            
+            // Try to find a premium native voice
+            const voices = synth.getVoices();
+            let voice = null;
+            
+            if (lang === 'ES' || lang.startsWith('es')) {
+                voice = voices.find(v => v.lang === 'es-MX' && v.name.includes('Google')) ||
+                        voices.find(v => v.lang.startsWith('es') && (v.name.includes('Paulina') || v.name.includes('Monica') || v.name.includes('Google'))) ||
+                        voices.find(v => v.lang.startsWith('es-MX')) ||
+                        voices.find(v => v.lang.startsWith('es'));
+            } else {
+                voice = voices.find(v => v.lang === 'en-US' && v.name.includes('Google')) ||
+                        voices.find(v => v.lang.startsWith('en') && (v.name.includes('Samantha') || v.name.includes('Google'))) ||
+                        voices.find(v => v.lang.startsWith('en'));
+            }
+            
+            if (voice) utter.voice = voice;
+            utter.rate = 1.05;
+            utter.pitch = 1.1; // Slightly higher pitch for friendlier tone
+            
+            utter.onend = () => {
+                console.log('Browser TTS finished');
+                resolve();
+            };
+            utter.onerror = (e) => {
+                console.error('Browser TTS error', e);
+                resolve();
+            };
+            
+            synth.speak(utter);
         });
     }
 
