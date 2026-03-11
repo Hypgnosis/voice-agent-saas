@@ -13,6 +13,7 @@ import re
 from datetime import datetime
 
 import edge_tts
+from gtts import gTTS
 import google.generativeai as genai
 from flask import Flask, request, jsonify, send_from_directory, render_template_string
 from flask_sqlalchemy import SQLAlchemy
@@ -259,11 +260,21 @@ def parse_lang_tag(text):
 def generate_tts_sync(text, voice):
     filename = f"{uuid.uuid4().hex}.mp3"
     filepath = os.path.join(AUDIO_DIR, filename)
-    async def _gen():
-        communicate = edge_tts.Communicate(text, voice)
-        await communicate.save(filepath)
-    asyncio.run(_gen())
-    return filename
+    
+    # Try Edge TTS first (premium voices)
+    try:
+        async def _gen():
+            communicate = edge_tts.Communicate(text, voice)
+            await communicate.save(filepath)
+        asyncio.run(_gen())
+        return filename
+    except Exception as e:
+        print(f"Edge TTS Failed ({e}), falling back to gTTS...")
+        # Fallback to gTTS if Edge TTS is blocked (e.g. 403 on Render)
+        lang = 'es' if 'es-' in voice.lower() else 'en'
+        tts = gTTS(text=text, lang=lang)
+        tts.save(filepath)
+        return filename
 
 
 def get_model_for_business(business, mode="customer"):
