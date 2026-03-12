@@ -12,6 +12,9 @@ import io
 import re
 from datetime import datetime, timedelta
 import requests
+import pytz
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
 
 import edge_tts
 from gtts import gTTS
@@ -284,52 +287,87 @@ def generate_tts_sync(text, voice):
         return filename
 
 
-# ── AI Webhook Tools ─────────────────────────────────
-
+# ── Google Calendar Direct Helpers ───────────────────
+def get_calendar_service():
+    """Builds the Google Calendar service using service account credentials."""
+    creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    scopes = ['https://www.googleapis.com/auth/calendar']
+    try:
+        if creds_path and os.path.exists(creds_path):
+            creds = service_account.Credentials.from_service_account_file(creds_path, scopes=scopes)
+        elif os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON"):
+            info = json.loads(os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON"))
+            creds = service_account.Credentials.from_service_account_info(info, scopes=scopes)
+        else:
+            return None
+        return build('calendar', 'v3', credentials=creds)
+    except Exception as e:
+        print(f"[GCal] Connection Error: {e}")
+        return None
+def get_gcal_free_slots(date_str):
+    """Checks direct FreeBusy status for goldenagemerida@gmail.com."""
+    calendar_id = os.environ.get("GOOGLE_CALENDAR_ID", "goldenagemerida@gmail.com")
+    local_tz = pytz.timezone(os.environ.get("TIMEZONE", "America/Merida"))
+    authorized_slots = ["09:00", "10:00", "11:00", "14:00", "15:00", "16:00"]
+    fallback = ["09:00", "10:00", "14:00", "16:00"]
+    service = get_calendar_service()
+    if not service: return fallback
+    try:
+        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+        time_min = local_tz.localize(date_obj.replace(hour=0, minute=0)).isoformat()
+        time_max = local_tz.localize(date_obj.replace(hour=23, minute=59)).isoformat()
+        
+        fb_query = {"timeMin": time_min, "timeMax": time_max, "items": [{"id": calendar_id}]}
+        resp = service.freebusy().query(body=fb_query).execute()
+        busy = resp.get('calendars', {}).get(calendar_id, {}).get('busy', [])
+        free = []
+        for slot in authorized_slots:
+            s_start = local_tz.localize(datetime.strptime(f"{date_str} {slot}", "%Y-%m-%d %H:%M"))
+            s_end = s_start + timedelta(hours=1)
+            is_busy = any(
+                max(s_start, datetime.fromisoformat(b['start'].replace('Z', '+00:00'))) < min(s_end, datetime.fromisoformat(b['end'].replace('Z', '+00:00')))
+                for b in busy
+            )
+            if not is_busy: free.append(slot)
+        return free # Real empty list if fully booked
+    except Exception as e:
+        print(f"[GCal] Availability Error: {e}")
+        return fallback
+# ── AI Tools (Function Calling) ──────────────────────
 def check_calendar_availability(date_str: str) -> str:
-    """
-    Fetches Dra. Mya's actual Free/Busy Calendar availability.
-    Args:
-        date_str: Date to check in YYYY-MM-DD format.
-    Returns: A list of available times or an error message.
-    """
-    webhook = os.environ.get("WEBHOOK_CHECK_AVAILABILITY")
-    if webhook:
-        try:
-            resp = requests.post(webhook, json={"date": date_str}, timeout=7)
-            return resp.text
-        except Exception as e:
-            return f"Error contacting calendar: {str(e)}"
-    return "9:00 AM, 12:30 PM, 4:00 PM (Mocked Slots - Webhook not set)"
-
+    """AI Tool: Checks actual GCal slots BEFORE offering them to the patient."""
+    slots = get_gcal_free_slots(date_str)
+    if not slots:
+        return f"Lo siento, no hay espacios disponibles para el {date_str}."
+    return f"Espacios disponibles para {date_str}: {', '.join(slots)}"
 def book_appointment(patient_name: str, phone_number: str, datetime_iso: str, type_of_visit: str, symptoms: str) -> str:
-    """
-    Books the event in Google Calendar, generates a Google Meet link, and triggers a WhatsApp confirmation.
-    Args:
-        patient_name: Full name of patient/caregiver.
-        phone_number: WhatsApp number.
-        datetime_iso: ISO date and time.
-        type_of_visit: 'live' or 'async'.
-        symptoms: Brief notes.
-    """
-    webhook = os.environ.get("WEBHOOK_BOOK_APPOINTMENT")
-    if webhook:
-        try:
-            payload = {
-                "patient_name": patient_name,
-                "phone_number": phone_number,
-                "datetime_iso": datetime_iso,
-                "type": type_of_visit,
-                "symptoms": symptoms
-            }
-            resp = requests.post(webhook, json=payload, timeout=7)
-            return "Success! Google Calendar Event created and WhatsApp sent."
-        except Exception as e:
-            return f"Error booking: {str(e)}"
-    return "Success! Calendar synced (Mocked - Webhook not set)."
+    """AI Tool: Creates the actual GCal event AFTER patient confirms a slot."""
+    service = get_calendar_service()
+    if not service: return "Error: El servicio de calendario no está disponible."
+    
+    calendar_id = os.environ.get("GOOGLE_CALENDAR_ID", "goldenagemerida@gmail.com")
+    try:
+        start_dt = datetime.fromisoformat(datetime_iso.replace('Z', '+00:00'))
+        event = {
+            'summary': f'Cita: {patient_name}',
+            'description': f'Tel: {phone_number}\nSíntomas: {symptoms}\nAgendado vía Agente de Voz.',
+            'start': {'dateTime': start_dt.isoformat()},
+            'end': {'dateTime': (start_dt + timedelta(hours=1)).isoformat()},
+            'conferenceData': {'createRequest': {'requestId': str(uuid.uuid4())}},
+        }
+        service.events().insert(calendarId=calendar_id, body=event, conferenceDataVersion=1).execute()
+        return f"¡Éxito! Cita agendada para {patient_name} el {datetime_iso}. Se ha generado un enlace de Google Meet."
+    except Exception as e:
+        return f"Error al agendar: {str(e)}"
 
-def get_model_for_business(business, mode="customer", parent_app_instructions=None):
+def get_model_for_business(business, mode="customer", parent_instructions=None):
     """Create a Gemini model with tools, injecting dynamic parent app context if provided."""
+    system_prompt = business.build_system_prompt(mode=mode)
+    
+    # Hierarchy Injection: Parent App overrides or enhances base tenant config
+    if parent_instructions:
+        system_prompt += f"\n\n--- CURRENT APP HIERARCHY INSTRUCTIONS (MUST FOLLOW) ---\n{parent_instructions}\n"
+
     return genai.GenerativeModel(
         model_name="gemini-2.0-flash", 
         system_instruction=business.build_system_prompt(mode=mode, parent_app_instructions=parent_app_instructions),
@@ -710,62 +748,14 @@ def twilio_respond(slug):
 
 
 # ══════════════════════════════════════════════════════
-# AVAILABILITY CHECK (Make.com → Google Calendar)
+# AVAILABILITY CHECK (Direct Google Calendar)
 # ══════════════════════════════════════════════════════
 @app.route("/api/availability", methods=["POST"])
 def check_availability():
-    """
-    Checks available appointment slots for a given date by calling
-    the Make.com webhook, which queries Google Calendar.
-    
-    Expected JSON body: { "date": "2026-03-15" }
-    Returns: { "slots": ["09:00", "10:00", ...] }
-    """
-    import urllib.request
-    import urllib.error
-
-    webhook_url = os.environ.get("WEBHOOK_CHECK_AVAILABILITY")
-    if not webhook_url:
-        # Fallback slots if webhook not configured
-        return jsonify({"slots": ["09:00", "10:00", "14:00", "16:00"]})
-
+    """Direct GCal lookup for the dashboard UI to stay in sync with the AI."""
     data = request.get_json() or {}
     date_str = data.get("date", datetime.now().strftime("%Y-%m-%d"))
-    business_slug = data.get("slug", "yo-te-cuido")
-
-    payload = json.dumps({"date": date_str, "slug": business_slug}).encode("utf-8")
-    req = urllib.request.Request(
-        webhook_url,
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            body = resp.read().decode("utf-8")
-            data = json.loads(body)
-            # New format: {"busy": [{"start":..., "end":...}]} from Google Calendar
-            if isinstance(data, dict) and "busy" in data:
-                all_slots = ["09:00", "10:00", "11:00", "14:00", "15:00", "16:00"]
-                busy_hours = set()
-                for evt in data["busy"]:
-                    start = evt.get("start", "")
-                    if "T" in start:
-                        hour = start.split("T")[1][:5]
-                        busy_hours.add(hour)
-                free = [s for s in all_slots if s not in busy_hours]
-                return jsonify({"slots": free or all_slots})
-            # Legacy format: {"slots": [...]} or [...]
-            elif isinstance(data, list):
-                return jsonify({"slots": data})
-            elif isinstance(data, dict) and "slots" in data:
-                return jsonify({"slots": data["slots"]})
-            else:
-                return jsonify({"slots": data})
-    except Exception as e:
-        print(f"[Availability] Webhook error: {e}")
-        # Return fallback slots on error so the agent can still book
-        return jsonify({"slots": ["09:00", "10:00", "14:00", "16:00"], "warning": str(e)})
+    return jsonify({"slots": get_gcal_free_slots(date_str)})
 
 
 # ══════════════════════════════════════════════════════
