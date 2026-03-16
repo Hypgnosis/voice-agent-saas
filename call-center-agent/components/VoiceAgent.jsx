@@ -92,7 +92,7 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
 
         setStatus('Connecting...');
         
-        const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${config.gemini_api_key}`;
+        const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${config.gemini_api_key}`;
         console.log('[SovereignAgent] Connecting WebSocket...');
         wsRef.current = new WebSocket(wsUrl);
 
