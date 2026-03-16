@@ -1,0 +1,3 @@
+[build]
+  base = "call-center-agent"
+  command = "npm run build"
