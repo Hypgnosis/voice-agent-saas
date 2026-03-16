@@ -22,7 +22,7 @@ export default function Home() {
           <Link href="/admin" className="text-sm font-semibold tracking-wide text-mercury/80 hover:text-archytech-violet transition-colors">
             Command Center
           </Link>
-          <Link href="/agent/yo-te-cuido" className="bg-mercury text-obsidian px-6 py-2.5 rounded-full text-sm font-bold shadow-[0_0_20px_rgba(229,231,235,0.1)] hover:shadow-[0_0_30px_rgba(229,231,235,0.3)] transition-all hover:scale-105 active:scale-95 flex items-center gap-2">
+          <Link href="/agent/aethos" className="bg-mercury text-obsidian px-6 py-2.5 rounded-full text-sm font-bold shadow-[0_0_20px_rgba(229,231,235,0.1)] hover:shadow-[0_0_30px_rgba(229,231,235,0.3)] transition-all hover:scale-105 active:scale-95 flex items-center gap-2">
             Initiate Protocol <ChevronRight size={16} />
           </Link>
         </div>
