@@ -13,11 +13,8 @@ import re
 from datetime import datetime, timedelta
 import requests
 import pytz
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
 
-import edge_tts
-from gtts import gTTS
+
 import google.generativeai as genai
 from flask import Flask, request, jsonify, send_from_directory, render_template_string
 from flask_sqlalchemy import SQLAlchemy
@@ -40,8 +37,6 @@ if not GENAI_API_KEY:
 
 genai.configure(api_key=GENAI_API_KEY)
 
-AUDIO_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web", "audio")
-os.makedirs(AUDIO_DIR, exist_ok=True)
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agent.db")
 
@@ -267,98 +262,42 @@ def parse_lang_tag(text):
     return "EN", text
 
 
-def generate_tts_sync(text, voice):
-    filename = f"{uuid.uuid4().hex}.mp3"
-    filepath = os.path.join(AUDIO_DIR, filename)
-    
-    # Try Edge TTS first (premium voices)
-    try:
-        async def _gen():
-            communicate = edge_tts.Communicate(text, voice)
-            await communicate.save(filepath)
-        asyncio.run(_gen())
-        return filename
-    except Exception as e:
-        print(f"Edge TTS Failed ({e}), falling back to gTTS...")
-        # Fallback to gTTS if Edge TTS is blocked (e.g. 403 on Render)
-        lang = 'es' if 'es-' in voice.lower() else 'en'
-        tts = gTTS(text=text, lang=lang)
-        tts.save(filepath)
-        return filename
 
+# ── Clinic Authority Bridge ──────────────────────────
+# This agent no longer manages GCal directly. It asks the Parent App.
 
-# ── Google Calendar Direct Helpers ───────────────────
-def get_calendar_service():
-    """Builds the Google Calendar service using service account credentials."""
-    creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-    scopes = ['https://www.googleapis.com/auth/calendar']
-    try:
-        if creds_path and os.path.exists(creds_path):
-            creds = service_account.Credentials.from_service_account_file(creds_path, scopes=scopes)
-        elif os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON"):
-            info = json.loads(os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON"))
-            creds = service_account.Credentials.from_service_account_info(info, scopes=scopes)
-        else:
-            return None
-        return build('calendar', 'v3', credentials=creds)
-    except Exception as e:
-        print(f"[GCal] Connection Error: {e}")
-        return None
-def get_gcal_free_slots(date_str):
-    """Checks direct FreeBusy status for goldenagemerida@gmail.com."""
-    calendar_id = os.environ.get("GOOGLE_CALENDAR_ID", "goldenagemerida@gmail.com")
-    local_tz = pytz.timezone(os.environ.get("TIMEZONE", "America/Merida"))
-    authorized_slots = ["09:00", "10:00", "11:00", "14:00", "15:00", "16:00"]
-    fallback = ["09:00", "10:00", "14:00", "16:00"]
-    service = get_calendar_service()
-    if not service: return fallback
-    try:
-        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
-        time_min = local_tz.localize(date_obj.replace(hour=0, minute=0)).isoformat()
-        time_max = local_tz.localize(date_obj.replace(hour=23, minute=59)).isoformat()
-        
-        fb_query = {"timeMin": time_min, "timeMax": time_max, "items": [{"id": calendar_id}]}
-        resp = service.freebusy().query(body=fb_query).execute()
-        busy = resp.get('calendars', {}).get(calendar_id, {}).get('busy', [])
-        free = []
-        for slot in authorized_slots:
-            s_start = local_tz.localize(datetime.strptime(f"{date_str} {slot}", "%Y-%m-%d %H:%M"))
-            s_end = s_start + timedelta(hours=1)
-            is_busy = any(
-                max(s_start, datetime.fromisoformat(b['start'].replace('Z', '+00:00'))) < min(s_end, datetime.fromisoformat(b['end'].replace('Z', '+00:00')))
-                for b in busy
-            )
-            if not is_busy: free.append(slot)
-        return free # Real empty list if fully booked
-    except Exception as e:
-        print(f"[GCal] Availability Error: {e}")
-        return fallback
-# ── AI Tools (Function Calling) ──────────────────────
+TELEMEDICINE_APP_URL = os.environ.get("TELEMEDICINE_APP_URL", "http://localhost:5001")
+
 def check_calendar_availability(date_str: str) -> str:
-    """AI Tool: Checks actual GCal slots BEFORE offering them to the patient."""
-    slots = get_gcal_free_slots(date_str)
-    if not slots:
-        return f"Lo siento, no hay espacios disponibles para el {date_str}."
-    return f"Espacios disponibles para {date_str}: {', '.join(slots)}"
-def book_appointment(patient_name: str, phone_number: str, datetime_iso: str, type_of_visit: str, symptoms: str) -> str:
-    """AI Tool: Creates the actual GCal event AFTER patient confirms a slot."""
-    service = get_calendar_service()
-    if not service: return "Error: El servicio de calendario no está disponible."
-    
-    calendar_id = os.environ.get("GOOGLE_CALENDAR_ID", "goldenagemerida@gmail.com")
+    """AI Tool: Requests availability from the Telemedicine App."""
     try:
-        start_dt = datetime.fromisoformat(datetime_iso.replace('Z', '+00:00'))
-        event = {
-            'summary': f'Cita: {patient_name}',
-            'description': f'Tel: {phone_number}\nSíntomas: {symptoms}\nAgendado vía Agente de Voz.',
-            'start': {'dateTime': start_dt.isoformat()},
-            'end': {'dateTime': (start_dt + timedelta(hours=1)).isoformat()},
-            'conferenceData': {'createRequest': {'requestId': str(uuid.uuid4())}},
-        }
-        service.events().insert(calendarId=calendar_id, body=event, conferenceDataVersion=1).execute()
-        return f"¡Éxito! Cita agendada para {patient_name} el {datetime_iso}. Se ha generado un enlace de Google Meet."
+        resp = requests.get(f"{TELEMEDICINE_APP_URL}/api/availability", params={"date": date_str}, timeout=7)
+        data = resp.json()
+        slots = data.get("slots", [])
+        if not slots:
+            return f"Lo siento, no hay espacios disponibles para el {date_str}."
+        return f"Espacios disponibles para {date_str}: {', '.join(slots)}"
     except Exception as e:
-        return f"Error al agendar: {str(e)}"
+        print(f"Calendar Bridge Error: {e}")
+        return "No pude conectar con el calendario de la clínica. Por favor, intente más tarde."
+
+def book_appointment(patient_name: str, phone_number: str, datetime_iso: str, type_of_visit: str, symptoms: str) -> str:
+    """AI Tool: Tells the Telemedicine App to handle the booking."""
+    try:
+        payload = {
+            "patient_name": patient_name,
+            "phone": phone_number,
+            "date": datetime_iso,
+            "type": type_of_visit,
+            "symptoms": symptoms
+        }
+        resp = requests.post(f"{TELEMEDICINE_APP_URL}/api/book", json=payload, timeout=10)
+        if resp.status_code == 200:
+            return f"¡Éxito! He reservado su cita para el {datetime_iso}. La clínica se pondrá en contacto con usted."
+        return "Hubo un problema al procesar la reserva. Por favor, contacte a soporte."
+    except Exception as e:
+        print(f"Booking Bridge Error: {e}")
+        return "Error de conexión al intentar agendar."
 
 def get_model_for_business(business, mode="customer", parent_instructions=None):
     """Create a Gemini model with tools, injecting dynamic parent app context if provided."""
@@ -370,7 +309,7 @@ def get_model_for_business(business, mode="customer", parent_instructions=None):
 
     return genai.GenerativeModel(
         model_name="gemini-2.0-flash", 
-        system_instruction=business.build_system_prompt(mode=mode, parent_app_instructions=parent_app_instructions),
+        system_instruction=system_prompt,
         tools=[check_calendar_availability, book_appointment]
     )
 
@@ -568,13 +507,8 @@ def agent_chat(slug):
     voice = business.voice_es if lang_tag == "ES" else business.voice_en
     print(f"  → Mode: {mode}, Language: {lang_tag}, Voice: {voice}")
 
-    # Generate TTS
-    try:
-        audio_file = generate_tts_sync(clean_text, voice)
-        audio_url = f"/audio/{audio_file}"
-    except Exception as e:
-        print(f"TTS error: {e}")
-        audio_url = None
+    # TTS is now handled fully on the frontend using browser native Google voices
+    audio_url = None
 
     # Log the interaction
     log = CallLog(
@@ -610,15 +544,11 @@ def agent_greeting(slug):
     voice = business.voice_es if detect_spanish(text) else business.voice_en
     print(f"  → Greeting voice: {voice} (detected {'ES' if detect_spanish(text) else 'EN'})")
 
-    try:
-        audio_file = generate_tts_sync(text, voice)
-        return jsonify({
-            "audio_url": f"/audio/{audio_file}",
-            "text": text,
-            "business_name": business.name,
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    return jsonify({
+        "audio_url": None,
+        "text": text,
+        "business_name": business.name,
+    })
 
 
 @app.route("/api/agent/<slug>/info", methods=["GET"])
@@ -669,6 +599,24 @@ def greeting_legacy():
     if not business:
         return jsonify({"error": "No business configured"}), 404
     return agent_greeting(business.slug)
+
+@app.route("/api/agent/<slug>/config", methods=["POST"])
+def agent_config(slug):
+    """Get the business-specific configuration including system prompt and API key."""
+    business = Business.query.filter_by(slug=slug, active=True).first()
+    if not business:
+        return jsonify({"error": "Business not found"}), 404
+
+    data = request.get_json() or {}
+    mode = data.get("mode", "customer")
+    parent_app_instructions = data.get("parent_app_instructions", "")
+    
+    system_prompt = business.build_system_prompt(mode=mode, parent_app_instructions=parent_app_instructions)
+    
+    return jsonify({
+        "system_prompt": system_prompt,
+        "gemini_api_key": GENAI_API_KEY
+    })
 
 
 # ══════════════════════════════════════════════════════
@@ -750,12 +698,19 @@ def twilio_respond(slug):
 # ══════════════════════════════════════════════════════
 # AVAILABILITY CHECK (Direct Google Calendar)
 # ══════════════════════════════════════════════════════
+# AVAILABILITY CHECK (Bridge to Parent App)
+# ══════════════════════════════════════════════════════
 @app.route("/api/availability", methods=["POST"])
 def check_availability():
-    """Direct GCal lookup for the dashboard UI to stay in sync with the AI."""
+    """Forward dashboard availability requests to the Telemedicine App."""
     data = request.get_json() or {}
     date_str = data.get("date", datetime.now().strftime("%Y-%m-%d"))
-    return jsonify({"slots": get_gcal_free_slots(date_str)})
+    try:
+        resp = requests.get(f"{TELEMEDICINE_APP_URL}/api/availability", params={"date": date_str}, timeout=5)
+        return jsonify(resp.json())
+    except Exception as e:
+        print(f"Availability Bridge Error: {e}")
+        return jsonify({"slots": ["09:00", "10:00", "14:00", "16:00"], "warning": "Bridge Down"})
 
 
 # ══════════════════════════════════════════════════════
