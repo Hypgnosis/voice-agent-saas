@@ -107,7 +107,7 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
 
             const setupMsg = {
                 setup: {
-                    model: 'models/gemini-live-2.5-flash-native-audio',
+                    model: 'models/gemini-2.5-flash-native-audio-latest',
                     generationConfig: {
                         responseModalities: ['AUDIO'],
                         speechConfig: {
