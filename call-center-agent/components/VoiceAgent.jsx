@@ -93,6 +93,7 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
         setStatus('Connecting...');
         
         const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${config.gemini_api_key}`;
+        console.log('[SovereignAgent] Connecting WebSocket...');
         wsRef.current = new WebSocket(wsUrl);
 
         wsRef.current.onopen = () => {
@@ -106,7 +107,7 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
 
             const setupMsg = {
                 setup: {
-                    model: 'models/gemini-2.0-flash-exp',
+                    model: 'models/gemini-2.0-flash-live-001',
                     generationConfig: {
                         responseModalities: ['AUDIO'],
                         speechConfig: {
@@ -116,6 +117,7 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
                     systemInstruction: { parts: [{ text: config.system_prompt }] }
                 }
             };
+            console.log('[SovereignAgent] Sending setup message...');
             wsRef.current.send(JSON.stringify(setupMsg));
 
             processorRef.current.onaudioprocess = (e) => {
@@ -192,8 +194,14 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
             } catch (e) { console.error("Message error:", e); }
         };
 
-        wsRef.current.onerror = () => setStatus('Connection Error');
-        wsRef.current.onclose = () => stopAgent();
+        wsRef.current.onerror = (err) => {
+            console.error('[SovereignAgent] WebSocket error:', err);
+            setStatus('Connection Error');
+        };
+        wsRef.current.onclose = (event) => {
+            console.log('[SovereignAgent] WebSocket closed:', event.code, event.reason);
+            if (active) stopAgent();
+        };
     };
 
     const stopAgent = () => {
