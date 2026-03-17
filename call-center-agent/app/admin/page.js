@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Mic, ChevronLeft, Users, Plus, Loader2, ExternalLink, AlertTriangle, CheckCircle2, X } from 'lucide-react';
+import { Mic, ChevronLeft, Users, Plus, Loader2, ExternalLink, AlertTriangle, CheckCircle2, X, MessageSquare, Clock } from 'lucide-react';
 
 const EMPTY_AGENT = {
     name: '',
@@ -24,6 +24,8 @@ export default function AdminPage() {
     const [newAgent, setNewAgent] = useState({ ...EMPTY_AGENT });
     const [toast, setToast] = useState(null);
     const [apiError, setApiError] = useState(null);
+    const [logs, setLogs] = useState([]);
+    const [logsLoading, setLogsLoading] = useState(false);
 
     useEffect(() => {
         fetchBusinesses();
@@ -68,9 +70,23 @@ export default function AdminPage() {
         setSeeding(false);
     };
 
+    const fetchLogs = async (bizId) => {
+        setLogsLoading(true);
+        try {
+            const res = await fetch(`/api/businesses/${bizId}/logs`);
+            const data = await res.json();
+            setLogs(Array.isArray(data) ? data : []);
+        } catch (e) {
+            setLogs([]);
+            showToast('Failed to load call logs', 'error');
+        }
+        setLogsLoading(false);
+    };
+
     const handleSelect = (biz) => {
         setCreating(false);
         setSelected({ ...biz });
+        fetchLogs(biz.id);
     };
 
     const handleChange = (field, value) => {
@@ -461,6 +477,57 @@ export default function AdminPage() {
                                     <span className="text-sm font-medium">{selected.active ? 'Active' : 'Inactive'}</span>
                                 </div>
                                 <div className="text-xs text-mercury/40">ID: {selected.id}</div>
+                            </div>
+
+                            {/* CALL LOGS SECTION */}
+                            <div className="clinical-panel p-6 space-y-4">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="text-xs uppercase tracking-widest text-mercury/50 font-semibold flex items-center gap-2">
+                                        <MessageSquare size={14} /> Call Logs & Transcripts
+                                    </h3>
+                                    <button 
+                                        onClick={() => fetchLogs(selected.id)}
+                                        disabled={logsLoading}
+                                        className="text-xs text-archytech-violet hover:text-archytech-violet/80 underline flex items-center gap-1"
+                                    >
+                                        {logsLoading ? <Loader2 size={12} className="animate-spin" /> : <Clock size={12} />} Refresh
+                                    </button>
+                                </div>
+                                
+                                {logsLoading && logs.length === 0 ? (
+                                    <div className="flex justify-center py-6 text-mercury/40">
+                                        <Loader2 size={16} className="animate-spin" />
+                                    </div>
+                                ) : logs.length === 0 ? (
+                                    <div className="text-center py-8 text-mercury/40 text-sm">
+                                        No conversations recorded yet.
+                                    </div>
+                                ) : (
+                                    <div className="space-y-4 max-h-96 overflow-y-auto pr-2 custom-scrollbar">
+                                        {logs.map((log) => (
+                                            <div key={log.id} className="bg-white/5 border border-white/5 p-4 rounded-xl space-y-3">
+                                                <div className="flex items-center justify-between text-xs text-mercury/40 mb-1 border-b border-white/5 pb-2">
+                                                    <span>{new Date(log.timestamp).toLocaleString()}</span>
+                                                    <span className="uppercase tracking-widest text-[9px] bg-white/5 px-2 py-0.5 rounded-full">{log.channel}</span>
+                                                </div>
+                                                
+                                                {log.caller_text && (
+                                                    <div className="flex flex-col items-end">
+                                                        <span className="text-[10px] uppercase text-mercury/40 mb-1">User</span>
+                                                        <span className="text-sm bg-archytech-violet/20 text-archytech-violet px-3 py-2 rounded-xl rounded-tr-sm max-w-[85%]">{log.caller_text}</span>
+                                                    </div>
+                                                )}
+                                                
+                                                {log.agent_text && (
+                                                    <div className="flex flex-col items-start mt-2">
+                                                        <span className="text-[10px] uppercase text-mercury/40 mb-1">Agent</span>
+                                                        <span className="text-sm bg-white/10 text-mercury px-3 py-2 rounded-xl rounded-tl-sm max-w-[85%]">{log.agent_text}</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}
