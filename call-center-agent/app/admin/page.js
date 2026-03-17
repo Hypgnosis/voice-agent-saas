@@ -388,12 +388,29 @@ export default function AdminPage() {
                                         Agent URL: <code className="text-archytech-violet text-xs">/agent/{selected.slug}</code>
                                     </p>
                                 </div>
-                                <Link 
-                                    href={`/agent/${selected.slug}`}
-                                    className="bg-archytech-violet/10 text-archytech-violet px-4 py-2 rounded-lg text-sm font-semibold border border-archytech-violet/20 hover:bg-archytech-violet/20 transition-colors flex items-center gap-2"
-                                >
-                                    Test Agent <ExternalLink size={14} />
-                                </Link>
+                                <div className="flex gap-2">
+                                    <button 
+                                        onClick={() => {
+                                            navigator.clipboard.writeText(`<iframe src="https://${window.location.host}/embed/${selected.slug}" width="100%" height="600px" style="border:none; border-radius:12px; overflow:hidden;" allow="microphone"></iframe>`);
+                                            showToast("Iframe code copied!");
+                                        }}
+                                        className="bg-mercury/10 text-mercury px-4 py-2 rounded-lg text-sm font-semibold border border-mercury/20 hover:bg-mercury/20 transition-colors flex items-center gap-2"
+                                    >
+                                        Copy Iframe
+                                    </button>
+                                    <Link 
+                                        href={`/embed/${selected.slug}`}
+                                        className="bg-archytech-violet/10 text-archytech-violet px-4 py-2 rounded-lg text-sm font-semibold border border-archytech-violet/20 hover:bg-archytech-violet/20 transition-colors flex items-center gap-2"
+                                    >
+                                        Test Embed <ExternalLink size={14} />
+                                    </Link>
+                                    <Link 
+                                        href={`/agent/${selected.slug}`}
+                                        className="bg-archytech-violet/10 text-archytech-violet px-4 py-2 rounded-lg text-sm font-semibold border border-archytech-violet/20 hover:bg-archytech-violet/20 transition-colors flex items-center gap-2"
+                                    >
+                                        Test Agent <ExternalLink size={14} />
+                                    </Link>
+                                </div>
                             </div>
 
                             <div className="clinical-panel p-6 space-y-4">

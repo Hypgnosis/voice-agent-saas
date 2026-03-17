@@ -41,6 +41,8 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
     const cleanTranscript = (text) => {
         if (!text) return '';
         return text
+            .replace(/<thought>[\s\S]*?(?:<\/thought>|$)/gi, '')
+            .replace(/\b(?:Thought|Thinking):\s*.+?(?=\n|$)/gi, '')
             .replace(/\[(EN|ES|FR|PT)\]/gi, '')
             .replace(/\[BOOK\]\s*(\{.*?\})?/gs, '')
             .trim();
@@ -239,6 +241,7 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
                 if (data.serverContent?.modelTurn?.parts) {
                     let textBuffer = "";
                     for (const part of data.serverContent.modelTurn.parts) {
+                        if (part.thought) continue;
                         if (part.text) textBuffer += part.text;
                         if (part.inlineData?.data) {
                             const binaryString = atob(part.inlineData.data);
