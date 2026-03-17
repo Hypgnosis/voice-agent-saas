@@ -130,6 +130,31 @@ export default function AdminPage() {
         setSaving(false);
     };
 
+    const updateAgent = async () => {
+        if (!selected?.name.trim()) {
+            showToast('Agent name is required', 'error');
+            return;
+        }
+        setSaving(true);
+        try {
+            const res = await fetch(`/api/businesses/${selected.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(selected),
+            });
+            const data = await res.json();
+            if (res.ok) {
+                showToast(`Agent "${selected.name}" updated successfully!`);
+                fetchBusinesses();
+            } else {
+                showToast(data.error || 'Failed to update agent', 'error');
+            }
+        } catch (e) {
+            showToast('Network error', 'error');
+        }
+        setSaving(false);
+    };
+
     const openCreateForm = () => {
         setSelected(null);
         setCreating(true);
@@ -472,11 +497,22 @@ export default function AdminPage() {
                             </div>
 
                             <div className="clinical-panel p-6 flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                    <div className={`w-3 h-3 rounded-full ${selected.active ? 'bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.4)]' : 'bg-red-400'}`} />
-                                    <span className="text-sm font-medium">{selected.active ? 'Active' : 'Inactive'}</span>
+                                <div className="flex items-center gap-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className={`w-3 h-3 rounded-full ${selected.active ? 'bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.4)]' : 'bg-red-400'}`} />
+                                        <span className="text-sm font-medium">{selected.active ? 'Active' : 'Inactive'}</span>
+                                    </div>
+                                    <div className="text-xs text-mercury/40 border-l border-mercury/20 pl-4">ID: {selected.id}</div>
                                 </div>
-                                <div className="text-xs text-mercury/40">ID: {selected.id}</div>
+                                
+                                <button
+                                    onClick={updateAgent}
+                                    disabled={saving}
+                                    className="bg-archytech-violet text-white px-6 py-2.5 rounded-xl text-sm font-bold hover:bg-archytech-violet/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-[0_0_20px_rgba(139,92,246,0.3)]"
+                                >
+                                    {saving ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+                                    {saving ? 'Saving...' : 'Save Changes'}
+                                </button>
                             </div>
 
                             {/* CALL LOGS SECTION */}

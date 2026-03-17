@@ -172,6 +172,10 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
                 recognitionRef.current.lang = config?.primary_lang || 'es-MX';
                 
                 recognitionRef.current.onresult = (event) => {
+                    // Prevent feedback loop: Ignore speech recognized while agent is outputting audio
+                    const isAgentCurrentlySpeaking = outputAudioCtxRef.current && (nextAudioTimeRef.current > outputAudioCtxRef.current.currentTime);
+                    if (isAgentCurrentlySpeaking) return;
+
                     for (let i = event.resultIndex; i < event.results.length; i++) {
                         if (event.results[i].isFinal) {
                             const userText = event.results[i][0].transcript;

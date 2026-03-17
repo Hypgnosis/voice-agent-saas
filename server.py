@@ -421,6 +421,12 @@ def update_business(bid):
         if field in data:
             setattr(b, field, data[field])
     db.session.commit()
+    
+    # Clear active sessions so new prompt/knowledge base is loaded on next chat
+    keys_to_delete = [k for k in sessions.keys() if k.startswith(f"{b.id}:")]
+    for k in keys_to_delete:
+        del sessions[k]
+        
     return jsonify(b.to_dict())
 
 
