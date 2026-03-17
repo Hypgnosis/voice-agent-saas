@@ -149,7 +149,15 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
 
         wsRef.current.onmessage = async (event) => {
             try {
-                const data = JSON.parse(event.data);
+                let rawData = event.data;
+                // Gemini API sometimes sends payloads as ArrayBuffer or Blob
+                if (rawData instanceof Blob) {
+                    rawData = await rawData.text();
+                } else if (rawData instanceof ArrayBuffer) {
+                    rawData = new TextDecoder().decode(rawData);
+                }
+                
+                const data = JSON.parse(rawData);
                 if (data.serverContent?.modelTurn?.parts) {
                     let textBuffer = "";
                     for (const part of data.serverContent.modelTurn.parts) {
