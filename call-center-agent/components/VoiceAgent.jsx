@@ -168,7 +168,23 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
                             for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
                             
                             try {
-                                const audioBuffer = await outputAudioCtxRef.current.decodeAudioData(bytes.buffer);
+                                const sampleRate = 24000;
+                                // 16-bit PCM means 2 bytes per sample
+                                const numSamples = bytes.length / 2;
+                                
+                                // Create an empty audio buffer covering the duration at 24kHz
+                                const audioBuffer = outputAudioCtxRef.current.createBuffer(1, numSamples, sampleRate);
+                                const channelData = audioBuffer.getChannelData(0);
+                                
+                                // The bytes are little-endian 16-bit PCM 
+                                const dataView = new DataView(bytes.buffer);
+                                
+                                // Convert 16-bit int to 32-bit float (-1.0 to 1.0)
+                                for (let i = 0; i < numSamples; i++) {
+                                    const int16 = dataView.getInt16(i * 2, true); // true = little-endian
+                                    channelData[i] = int16 / 32768.0;
+                                }
+
                                 const source = outputAudioCtxRef.current.createBufferSource();
                                 source.buffer = audioBuffer;
                                 source.connect(outputAudioCtxRef.current.destination);
