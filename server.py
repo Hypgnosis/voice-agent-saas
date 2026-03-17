@@ -449,6 +449,34 @@ def get_call_logs(bid):
         "channel": l.channel,
     } for l in logs])
 
+@app.route("/api/agent/<slug>/log", methods=["POST"])
+def agent_log(slug):
+    """Save transcript log directly from the frontend VoiceAgent client."""
+    business = Business.query.filter_by(slug=slug, active=True).first()
+    if not business:
+        return jsonify({"error": "Business not found"}), 404
+        
+    data = request.get_json() or {}
+    role = data.get("role")
+    text = data.get("text", "").strip()
+    channel = data.get("channel", "web")
+    
+    if not text:
+        return jsonify({"status": "ignored"})
+        
+    log = CallLog(
+        business_id=business.id,
+        caller_text=text if role == "user" else "",
+        agent_text=text if role == "agent" else "",
+        language="auto",
+        channel=channel
+    )
+    db.session.add(log)
+    if role == "user":
+        business.call_count += 1
+    db.session.commit()
+    return jsonify({"status": "logged"})
+
 
 
 # ══════════════════════════════════════════════════════

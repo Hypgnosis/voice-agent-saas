@@ -24,6 +24,62 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
     const canvasRef = useRef(null);
     const analyserRef = useRef(null);
     const rafRef = useRef(null);
+    const recognitionRef = useRef(null);
+    const currentAgentTextRef = useRef('');
+
+    const logConversation = async (role, text) => {
+        if (!text?.trim()) return;
+        try {
+            await fetch(`/api/agent/${slug}/log`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ role, text, channel: 'iframe' })
+            });
+        } catch(e) { console.error("Log failed", e); }
+    };
+
+    const cleanTranscript = (text) => {
+        if (!text) return '';
+        return text
+            .replace(/\[(EN|ES|FR|PT)\]/gi, '')
+            .replace(/\[BOOK\]\s*(\{.*?\})?/gs, '')
+            .trim();
+    };
+
+    const updateLastAgentMessage = (textChunk) => {
+        currentAgentTextRef.current += textChunk;
+        setMessages(prev => {
+            const rawText = currentAgentTextRef.current;
+            const cleanedText = cleanTranscript(rawText);
+            
+            if (prev.length === 0 || prev[prev.length - 1].role !== 'agent' || prev[prev.length - 1].status === 'final') {
+                 return [...prev, { id: uuidv4(), role: 'agent', text: cleanedText, time: new Date() }];
+            }
+            const newMessages = [...prev];
+            newMessages[newMessages.length - 1] = { ...newMessages[newMessages.length - 1], text: cleanedText };
+            return newMessages;
+        });
+    };
+
+    const finalizeAgentMessage = () => {
+        const rawText = currentAgentTextRef.current;
+        const cleanedText = cleanTranscript(rawText);
+        
+        if (cleanedText) {
+             setMessages(prev => {
+                 if (prev.length === 0) return prev;
+                 const last = prev[prev.length - 1];
+                 if (last.role === 'agent' && last.status !== 'final') {
+                     const newMessages = [...prev];
+                     newMessages[newMessages.length - 1] = { ...last, status: 'final', text: cleanedText };
+                     return newMessages;
+                 }
+                 return prev;
+             });
+             logConversation('agent', cleanedText);
+        }
+        currentAgentTextRef.current = ''; // Reset for next turn
+    };
 
     useEffect(() => {
         // Fetch config once on mount
@@ -104,6 +160,28 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
             
             timerRef.current = setInterval(() => setDuration(d => d + 1), 1000);
             drawViz();
+
+            // Init SpeechRecognition for user transcription logging
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (SpeechRecognition) {
+                recognitionRef.current = new SpeechRecognition();
+                recognitionRef.current.continuous = true;
+                recognitionRef.current.interimResults = false;
+                recognitionRef.current.lang = config?.primary_lang || 'es-MX';
+                
+                recognitionRef.current.onresult = (event) => {
+                    for (let i = event.resultIndex; i < event.results.length; i++) {
+                        if (event.results[i].isFinal) {
+                            const userText = event.results[i][0].transcript;
+                            setMessages(prev => [...prev, { id: uuidv4(), role: 'user', text: userText, time: new Date() }]);
+                            logConversation('user', userText);
+                        }
+                    }
+                };
+                try {
+                    recognitionRef.current.start();
+                } catch(e) {}
+            }
 
             const setupMsg = {
                 setup: {
@@ -200,10 +278,10 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
                             }
                         }
                     }
-                    if (textBuffer.trim()) {
-                        addMessage('agent', textBuffer.trim());
+                    if (textBuffer) {
+                        updateLastAgentMessage(textBuffer);
                         
-                        // Parse intent
+                        // Parse intent safely
                         const bookMatch = textBuffer.match(/\[BOOK\]\s*(\{.*?\})/s);
                         if (bookMatch) {
                             try {
@@ -215,6 +293,12 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
                         }
                     }
                 }
+                
+                // When turn completes, finalize message and log
+                if (data.serverContent?.turnComplete) {
+                     finalizeAgentMessage();
+                }
+
             } catch (e) { console.error("Message error:", e); }
         };
 
@@ -236,6 +320,11 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
         if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
         if (timerRef.current) clearInterval(timerRef.current);
         if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        
+        if (recognitionRef.current) {
+            try { recognitionRef.current.stop(); } catch(e) {}
+            recognitionRef.current = null;
+        }
         
         wsRef.current = null;
         processorRef.current = null;
