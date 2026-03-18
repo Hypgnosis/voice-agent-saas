@@ -154,7 +154,11 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
         console.log('[SovereignAgent] Connecting WebSocket...');
         wsRef.current = new WebSocket(wsUrl);
 
-        wsRef.current.onopen = () => {
+        // Track whether setup handshake is complete
+        const setupCompleteRef = { current: false };
+
+        // Helper: start streaming mic audio + kick off conversation
+        const beginSession = () => {
             setStatus('Listening');
             setActive(true);
             setMessages([]);
@@ -172,7 +176,6 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
                 recognitionRef.current.lang = config?.primary_lang || 'es-MX';
                 
                 recognitionRef.current.onresult = (event) => {
-                    // Prevent feedback loop: Ignore speech recognized while agent is outputting audio
                     const isAgentCurrentlySpeaking = outputAudioCtxRef.current && (nextAudioTimeRef.current > outputAudioCtxRef.current.currentTime);
                     if (isAgentCurrentlySpeaking) return;
 
@@ -184,28 +187,21 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
                         }
                     }
                 };
+                recognitionRef.current.onerror = () => {};
+                recognitionRef.current.onend = () => {
+                    // Auto-restart if session is still active
+                    if (setupCompleteRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
+                        try { recognitionRef.current?.start(); } catch(e) {}
+                    }
+                };
                 try {
                     recognitionRef.current.start();
                 } catch(e) {}
             }
 
-            const setupMsg = {
-                setup: {
-                    model: 'models/gemini-2.5-flash-native-audio-latest',
-                    generationConfig: {
-                        responseModalities: ['AUDIO'],
-                        speechConfig: {
-                            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Puck' } }
-                        }
-                    },
-                    systemInstruction: { parts: [{ text: config.system_prompt }] }
-                }
-            };
-            console.log('[SovereignAgent] Sending setup message...');
-            wsRef.current.send(JSON.stringify(setupMsg));
-
+            // Start streaming mic audio to Gemini
             processorRef.current.onaudioprocess = (e) => {
-                if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+                if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !setupCompleteRef.current) return;
                 const inputData = e.inputBuffer.getChannelData(0);
                 
                 const pcm16 = new Int16Array(inputData.length);
@@ -225,16 +221,34 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
                 }));
             };
 
-            // Initial kickoff
+            // Kickoff greeting
+            console.log('[SovereignAgent] Session ready — sending kickoff...');
             wsRef.current.send(JSON.stringify({
                 clientContent: { turns: [{ role: "user", parts: [{ text: "Hello! Begin." }] }], turnComplete: true }
             }));
         };
 
+        wsRef.current.onopen = () => {
+            // Step 1: ONLY send the setup message. Do NOT send audio or client content yet.
+            const setupMsg = {
+                setup: {
+                    model: 'models/gemini-2.5-flash-native-audio-latest',
+                    generationConfig: {
+                        responseModalities: ['AUDIO', 'TEXT'],
+                        speechConfig: {
+                            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Puck' } }
+                        }
+                    },
+                    systemInstruction: { parts: [{ text: config.system_prompt }] }
+                }
+            };
+            console.log('[SovereignAgent] Sending setup message...');
+            wsRef.current.send(JSON.stringify(setupMsg));
+        };
+
         wsRef.current.onmessage = async (event) => {
             try {
                 let rawData = event.data;
-                // Gemini API sometimes sends payloads as ArrayBuffer or Blob
                 if (rawData instanceof Blob) {
                     rawData = await rawData.text();
                 } else if (rawData instanceof ArrayBuffer) {
@@ -242,6 +256,18 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
                 }
                 
                 const data = JSON.parse(rawData);
+
+                // Step 2: Wait for setupComplete before doing anything else
+                if (data.setupComplete) {
+                    console.log('[SovereignAgent] Setup acknowledged by server ✓');
+                    setupCompleteRef.current = true;
+                    beginSession();
+                    return;
+                }
+
+                // Ignore any messages before setup is complete
+                if (!setupCompleteRef.current) return;
+
                 if (data.serverContent?.modelTurn?.parts) {
                     let textBuffer = "";
                     for (const part of data.serverContent.modelTurn.parts) {
@@ -254,19 +280,13 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
                             
                             try {
                                 const sampleRate = 24000;
-                                // 16-bit PCM means 2 bytes per sample
                                 const numSamples = bytes.length / 2;
-                                
-                                // Create an empty audio buffer covering the duration at 24kHz
                                 const audioBuffer = outputAudioCtxRef.current.createBuffer(1, numSamples, sampleRate);
                                 const channelData = audioBuffer.getChannelData(0);
-                                
-                                // The bytes are little-endian 16-bit PCM 
                                 const dataView = new DataView(bytes.buffer);
                                 
-                                // Convert 16-bit int to 32-bit float (-1.0 to 1.0)
                                 for (let i = 0; i < numSamples; i++) {
-                                    const int16 = dataView.getInt16(i * 2, true); // true = little-endian
+                                    const int16 = dataView.getInt16(i * 2, true);
                                     channelData[i] = int16 / 32768.0;
                                 }
 
@@ -287,26 +307,32 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
                     }
                     if (textBuffer) {
                         updateLastAgentMessage(textBuffer);
-                        
-                        // Parse intent safely
-                        const bookMatch = textBuffer.match(/\[BOOK\]\s*(\{.*?\})/s);
-                        if (bookMatch) {
-                            try {
-                                let book_data = JSON.parse(bookMatch[1]);
-                                if (window.parent !== window) {
-                                    window.parent.postMessage({ type: 'BOOK_APPOINTMENT', payload: book_data }, '*');
-                                }
-                            } catch(e) {}
-                        }
                     }
                 }
                 
-                // When turn completes, finalize message and log
+                // When turn completes, finalize + check for [BOOK] tag in the full accumulated text
                 if (data.serverContent?.turnComplete) {
-                     finalizeAgentMessage();
+                    const fullText = currentAgentTextRef.current;
+                    
+                    // Check for booking intent in the complete turn text
+                    const bookMatch = fullText.match(/\[BOOK\]\s*(\{.*?\})/s);
+                    if (bookMatch) {
+                        try {
+                            const book_data = JSON.parse(bookMatch[1]);
+                            console.log('[SovereignAgent] BOOK intent detected:', book_data);
+                            if (window.parent !== window) {
+                                window.parent.postMessage({ type: 'BOOK_APPOINTMENT', payload: book_data }, '*');
+                                console.log('[SovereignAgent] Sent BOOK_APPOINTMENT to parent window');
+                            }
+                        } catch(e) {
+                            console.error('[SovereignAgent] Failed to parse BOOK tag:', e);
+                        }
+                    }
+                    
+                    finalizeAgentMessage();
                 }
 
-            } catch (e) { console.error("Message error:", e); }
+            } catch (e) { console.error("[SovereignAgent] Message parse error:", e); }
         };
 
         wsRef.current.onerror = (err) => {
@@ -315,6 +341,7 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
         };
         wsRef.current.onclose = (event) => {
             console.log('[SovereignAgent] WebSocket closed:', event.code, event.reason);
+            setupCompleteRef.current = false;
             if (active) stopAgent();
         };
     };
