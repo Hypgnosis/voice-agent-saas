@@ -5,7 +5,7 @@ export default async function EmbedPage({ params, searchParams }) {
     const resolvedParams = await params;
     const resolvedSearchParams = await searchParams;
     const slug = resolvedParams.slug || 'yo-te-cuido';
-    const parentInstructions = resolvedSearchParams.instructions || '';
+    const parentInstructions = resolvedSearchParams.parentInstructions || resolvedSearchParams.instructions || '';
 
     return (
         <div className="w-full h-full overflow-hidden">

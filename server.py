@@ -283,21 +283,11 @@ def check_calendar_availability(date_str: str) -> str:
 
 def book_appointment(patient_name: str, phone_number: str, datetime_iso: str, type_of_visit: str, symptoms: str) -> str:
     """AI Tool: Tells the Telemedicine App to handle the booking."""
-    try:
-        payload = {
-            "patient_name": patient_name,
-            "phone": phone_number,
-            "date": datetime_iso,
-            "type": type_of_visit,
-            "symptoms": symptoms
-        }
-        resp = requests.post(f"{TELEMEDICINE_APP_URL}/api/book", json=payload, timeout=10)
-        if resp.status_code == 200:
-            return f"¡Éxito! He reservado su cita para el {datetime_iso}. La clínica se pondrá en contacto con usted."
-        return "Hubo un problema al procesar la reserva. Por favor, contacte a soporte."
-    except Exception as e:
-        print(f"Booking Bridge Error: {e}")
-        return "Error de conexión al intentar agendar."
+    # We no longer post to a backend API from the python agent. 
+    # Instead, returning success here triggers the AI to output the [BOOK] tag, 
+    # which the React frontend intercepts and handles securely.
+    print(f"Booking triggered for {patient_name} at {datetime_iso}")
+    return f"¡Éxito! He reservado su cita para el {datetime_iso}. Recuerda decir el tag final para sincronizar con el portal."
 
 def get_model_for_business(business, mode="customer", parent_instructions=None):
     """Create a Gemini model with tools, injecting dynamic parent app context if provided."""
@@ -310,7 +300,7 @@ def get_model_for_business(business, mode="customer", parent_instructions=None):
     return genai.GenerativeModel(
         model_name="gemini-2.0-flash", 
         system_instruction=system_prompt,
-        tools=[check_calendar_availability, book_appointment]
+        tools=[check_calendar_availability]
     )
 
 
