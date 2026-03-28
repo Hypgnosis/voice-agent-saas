@@ -2,7 +2,7 @@
 AI Voice Agent — Multi-Tenant Server
 - Admin dashboard to manage businesses
 - Per-business knowledge base & system prompts
-- Ready for Twilio Voice/WhatsApp integration
+- Ready for Meta Cloud API (WhatsApp) integration
 """
 import os
 import asyncio
@@ -644,79 +644,130 @@ def agent_config(slug):
 
 
 # ══════════════════════════════════════════════════════
-#  TWILIO WEBHOOK (Ready for integration)
+#  META WHATSAPP CLOUD API WEBHOOK
 # ══════════════════════════════════════════════════════
 
-@app.route("/webhook/twilio/voice/<slug>", methods=["POST"])
-def twilio_voice(slug):
-    """
-    Twilio voice webhook endpoint.
-    To activate, you need:
-    1. pip install twilio
-    2. Set up a Twilio account
-    3. Buy a phone number
-    4. Point the webhook to: https://yourdomain.com/webhook/twilio/voice/<slug>
-    """
-    # Placeholder — returns TwiML instructions
-    business = Business.query.filter_by(slug=slug, active=True).first()
-    if not business:
-        return '<Response><Say>Sorry, this number is not configured.</Say></Response>', 200, {'Content-Type': 'text/xml'}
+META_VERIFY_TOKEN = os.environ.get("META_VERIFY_TOKEN", "sovereign_secure_token_123")
+META_ACCESS_TOKEN = os.environ.get("META_ACCESS_TOKEN", "")
 
-    greeting = business.greeting
-    twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Say voice="Polly.Joanna">{greeting}</Say>
-    <Gather input="speech" action="/webhook/twilio/respond/{slug}" method="POST" language="en-US" timeout="3">
-        <Say>Please go ahead.</Say>
-    </Gather>
-</Response>"""
-    return twiml, 200, {'Content-Type': 'text/xml'}
+def send_whatsapp_message(phone_number_id, to_number, message_text):
+    """Helper function to send a text reply back to the patient via Meta Graph API."""
+    if not META_ACCESS_TOKEN:
+        print("ERROR: META_ACCESS_TOKEN not set. Cannot send WhatsApp reply.")
+        return
 
-
-@app.route("/webhook/twilio/respond/<slug>", methods=["POST"])
-def twilio_respond(slug):
-    """Handle Twilio speech input and respond."""
-    business = Business.query.filter_by(slug=slug, active=True).first()
-    if not business:
-        return '<Response><Say>Error.</Say></Response>', 200, {'Content-Type': 'text/xml'}
-
-    speech_result = request.form.get("SpeechResult", "")
-    if not speech_result:
-        twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Say>I didn't catch that.</Say>
-    <Gather input="speech" action="/webhook/twilio/respond/{slug}" method="POST" language="en-US" timeout="3">
-        <Say>Could you repeat that?</Say>
-    </Gather>
-</Response>"""
-        return twiml, 200, {'Content-Type': 'text/xml'}
-
-    # Get AI response
-    session_key = f"{business.id}:twilio"
-    if session_key not in sessions:
-        business_model = get_model_for_business(business)
-        sessions[session_key] = business_model.start_chat()
-
+    url = f"https://graph.facebook.com/v18.0/{phone_number_id}/messages"
+    headers = {
+        "Authorization": f"Bearer {META_ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_number,
+        "type": "text",
+        "text": {"body": message_text}
+    }
     try:
-        response = sessions[session_key].send_message(speech_result)
-        _, clean_text = parse_lang_tag(response.text)
-    except:
-        clean_text = "I'm sorry, I'm having technical difficulties."
+        print(f"📤 Sending WhatsApp reply to {to_number} via phone_number_id={phone_number_id}")
+        resp = requests.post(url, headers=headers, json=payload, timeout=5)
+        print(f"   ↳ Graph API response [{resp.status_code}]: {resp.text}")
+    except Exception as e:
+        print(f"Failed to send WhatsApp message: {e}")
 
-    # Log it
-    log = CallLog(business_id=business.id, caller_text=speech_result,
-                  agent_text=clean_text, language="EN", channel="phone")
-    db.session.add(log)
-    business.call_count += 1
-    db.session.commit()
+@app.route("/webhook/whatsapp/<slug>", methods=["GET", "POST"])
+def whatsapp_webhook(slug):
+    business = Business.query.filter_by(slug=slug, active=True).first()
+    if not business:
+        return jsonify({"error": "Business not configured."}), 404
 
-    twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Say voice="Polly.Joanna">{clean_text}</Say>
-    <Gather input="speech" action="/webhook/twilio/respond/{slug}" method="POST" language="en-US" timeout="3">
-    </Gather>
-</Response>"""
-    return twiml, 200, {'Content-Type': 'text/xml'}
+    # 1. META WEBHOOK VERIFICATION (GET)
+    if request.method == "GET":
+        mode = request.args.get("hub.mode")
+        token = request.args.get("hub.verify_token")
+        challenge = request.args.get("hub.challenge")
+
+        if mode == "subscribe" and token == META_VERIFY_TOKEN:
+            print(f"✅ Webhook verified for {slug}")
+            return challenge, 200
+        return "Forbidden", 403
+
+    # 2. INCOMING WHATSAPP MESSAGE (POST)
+    data = request.get_json()
+    
+    try:
+        # Meta's payload is deeply nested. We need to extract the message safely.
+        entry = data.get("entry", [{}])[0]
+        changes = entry.get("changes", [{}])[0]
+        value = changes.get("value", {})
+        
+        # Get the Phone Number ID (the ID of your clinic's WhatsApp number)
+        phone_number_id = value.get("metadata", {}).get("phone_number_id")
+        
+        # If there are no messages (e.g., it's just a status update like 'delivered' or 'read'), ignore it
+        if "messages" not in value:
+            return jsonify({"status": "ignored"}), 200
+
+        message = value["messages"][0]
+        patient_phone = message.get("from")
+        
+        # We are only handling text right now. (Voice notes require downloading the media file and transcribing).
+        if message.get("type") != "text":
+            send_whatsapp_message(phone_number_id, patient_phone, "Lo siento, por ahora solo puedo leer mensajes de texto. ¿Puedes escribir tu consulta?")
+            return jsonify({"status": "media_ignored"}), 200
+
+        user_text = message["text"]["body"]
+
+        # --- AI PROCESSING ---
+        session_key = f"{business.id}:wa:{patient_phone}"
+        if session_key not in sessions:
+            business_model = get_model_for_business(business)
+            sessions[session_key] = business_model.start_chat()
+
+        response = sessions[session_key].send_message(user_text)
+        response_text = response.text
+
+        # --- OPENCLAW HANDOFF CHECK ---
+        # If the LLM output the [BOOK] tag, it means the conversation reached the goal.
+        book_match = re.search(r'\[BOOK\]\s*(\{.*?\})', response_text, re.DOTALL)
+        if book_match:
+            try:
+                book_data = json.loads(book_match.group(1))
+                print(f"🚀 [Sovereign] WhatsApp Booking Intent detected for {patient_phone}:", book_data)
+                
+                # Strip the tag from the text sent to the patient
+                response_text = re.sub(r'\[BOOK\]\s*\{.*?\}', '', response_text, flags=re.DOTALL).strip()
+                
+                # Trigger OpenClaw asynchronously (so we don't block the WhatsApp reply)
+                # In production, you would call your OpenClaw Gateway here.
+                print(f"   ↳ Handing off to OpenClaw container for Calendar Tetris...")
+                
+            except Exception as e:
+                print(f"Error parsing BOOK tag in WhatsApp: {e}")
+
+        # Strip standard language tags if present
+        _, clean_text = parse_lang_tag(response_text)
+
+        # Log it to your database
+        log = CallLog(
+            business_id=business.id, 
+            caller_text=user_text,
+            agent_text=clean_text, 
+            language="auto", 
+            channel="whatsapp"
+        )
+        db.session.add(log)
+        business.call_count += 1
+        db.session.commit()
+
+        # Send the final reply back to the patient
+        send_whatsapp_message(phone_number_id, patient_phone, clean_text)
+
+        return jsonify({"status": "success"}), 200
+
+    except Exception as e:
+        print(f"WhatsApp Webhook Error: {e}")
+        return jsonify({"status": "error"}), 500
+
 
 
 # ══════════════════════════════════════════════════════

@@ -26,6 +26,8 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
     const rafRef = useRef(null);
     const recognitionRef = useRef(null);
     const currentAgentTextRef = useRef('');
+    const currentUserTextRef = useRef('');
+    const chatEndRef = useRef(null);
 
     const logConversation = async (role, text) => {
         if (!text?.trim()) return;
@@ -61,6 +63,39 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
             newMessages[newMessages.length - 1] = { ...newMessages[newMessages.length - 1], text: cleanedText };
             return newMessages;
         });
+    };
+
+    // Accumulate user input transcription into a single bubble (mirrors agent pattern)
+    const updateLastUserMessage = (textChunk) => {
+        currentUserTextRef.current += textChunk;
+        const cleanedText = currentUserTextRef.current.trim();
+        if (!cleanedText) return;
+        setMessages(prev => {
+            if (prev.length === 0 || prev[prev.length - 1].role !== 'user' || prev[prev.length - 1].status === 'final') {
+                return [...prev, { id: uuidv4(), role: 'user', text: cleanedText, time: new Date() }];
+            }
+            const newMessages = [...prev];
+            newMessages[newMessages.length - 1] = { ...newMessages[newMessages.length - 1], text: cleanedText };
+            return newMessages;
+        });
+    };
+
+    const finalizeUserMessage = () => {
+        const cleanedText = currentUserTextRef.current.trim();
+        if (cleanedText) {
+            setMessages(prev => {
+                if (prev.length === 0) return prev;
+                const last = prev[prev.length - 1];
+                if (last.role === 'user' && last.status !== 'final') {
+                    const newMessages = [...prev];
+                    newMessages[newMessages.length - 1] = { ...last, status: 'final', text: cleanedText };
+                    return newMessages;
+                }
+                return prev;
+            });
+            logConversation('user', cleanedText);
+        }
+        currentUserTextRef.current = '';
     };
 
     const finalizeAgentMessage = () => {
@@ -287,12 +322,11 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
                     updateLastAgentMessage(transcriptChunk);
                 }
 
-                // Handle INPUT transcription (what the user said — via Gemini's own transcription)
+                // Handle INPUT transcription (what the user said — accumulate into single bubble)
                 if (serverContent.inputTranscription?.text) {
                     const userText = serverContent.inputTranscription.text;
                     if (userText.trim()) {
-                        setMessages(prev => [...prev, { id: uuidv4(), role: 'user', text: userText.trim(), time: new Date() }]);
-                        logConversation('user', userText.trim());
+                        updateLastUserMessage(userText);
                     }
                 }
 
@@ -302,6 +336,7 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
                     // Cancel any queued audio
                     nextAudioTimeRef.current = 0;
                     finalizeAgentMessage();
+                    finalizeUserMessage();
                 }
                 
                 // When turn completes, finalize + check for [BOOK] tag in the full accumulated text
@@ -324,6 +359,8 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
                         }
                     }
                     
+                    // Finalize both user and agent bubbles for this turn
+                    finalizeUserMessage();
                     finalizeAgentMessage();
                 }
 
@@ -429,96 +466,97 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
 
     const formatTime = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
+    // Auto-scroll chat to bottom when messages update
+    useEffect(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [messages]);
+
     return (
-        <div className="flex flex-col h-screen text-mercury bg-obsidian font-sans p-6 overflow-hidden relative">
+        <div className="flex flex-col h-screen text-mercury bg-obsidian font-sans overflow-hidden relative">
             {/* Ambient Background Orbs */}
             <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-violet-600/20 rounded-full blur-[120px] pointer-events-none" />
             <div className="absolute bottom-[-10%] right-[-10%] w-[60%] h-[60%] bg-blue-600/10 rounded-full blur-[120px] pointer-events-none" />
             
-            {/* Topbar */}
-            <header className="flex justify-between items-center z-10 w-full max-w-5xl mx-auto clinical-panel p-4">
-                <div className="flex items-center gap-3">
-                    <div className="p-2 bg-violet-500/20 text-archytech-violet rounded-lg">
-                        <Mic size={20} />
+            {/* Topbar — compact */}
+            <header className="flex justify-between items-center z-10 w-full px-4 py-2 border-b border-white/5 bg-obsidian/80 backdrop-blur-md">
+                <div className="flex items-center gap-2">
+                    <div className="p-1.5 bg-violet-500/20 text-archytech-violet rounded-lg">
+                        <Mic size={16} />
                     </div>
                     <div>
                         <h1 className="text-sm font-semibold tracking-wide">Sovereign Agent</h1>
-                        <span className="text-xs text-archytech-violet/80 uppercase tracking-widest">Autonomous Interface</span>
                     </div>
                 </div>
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3">
                     <button onClick={toggleSound} className="text-gray-400 hover:text-white transition-colors">
-                        {muted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+                        {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
                     </button>
-                    <div className="flex items-center gap-2 bg-white/5 px-3 py-1.5 rounded-full border border-white/5">
-                        <div className={`w-2 h-2 rounded-full ${active ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`} />
-                        <span className="text-xs text-gray-300 uppercase tracking-wider font-medium">{status}</span>
+                    <div className="flex items-center gap-1.5 bg-white/5 px-2.5 py-1 rounded-full border border-white/5">
+                        <div className={`w-1.5 h-1.5 rounded-full ${active ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`} />
+                        <span className="text-[10px] text-gray-300 uppercase tracking-wider font-medium">{status}</span>
+                        {active && <span className="text-[10px] text-gray-500 font-mono ml-1">{formatTime(duration)}</span>}
                     </div>
                 </div>
             </header>
 
-            {/* Main Stage */}
-            <main className="flex-1 flex w-full max-w-5xl mx-auto gap-6 mt-6 z-10 min-h-0">
-                
-                {/* Visualizer & Controls */}
-                <section className="flex-1 clinical-panel flex flex-col items-center justify-center p-8 relative overflow-hidden">
-                    <canvas ref={canvasRef} className="absolute inset-x-0 top-1/2 -translate-y-1/2 w-[120%] h-32 opacity-80" />
-                    
-                    <button 
-                        onClick={toggleAgent}
-                        className={`relative z-10 w-24 h-24 rounded-full flex items-center justify-center transition-panel
-                            ${active 
-                                ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30 ring-1 ring-red-500/50' 
-                                : 'bg-archytech-violet text-mercury hover:scale-105 shadow-[0_0_40px_rgba(139,92,246,0.5)]'
-                            }
-                        `}
-                    >
-                        {active ? <Square fill="currentColor" size={32} /> : <Mic size={36} />}
-                        {active && <div className="absolute inset-0 rounded-full border border-red-500/50 animate-ping opacity-50" />}
-                    </button>
-
-                    <p className="mt-8 text-gray-400 font-medium tracking-wide relative z-10">
-                        {active ? 'Protocol Active' : 'Tap to Initiate Protocol'}
-                    </p>
-                    {active && (
-                        <div className="absolute top-6 left-6 right-6 flex justify-between text-xs text-gray-500 tracking-widest uppercase items-center">
-                            <span className="flex gap-2">Protocol Uptime: <span className="text-mercury font-mono">{formatTime(duration)}</span></span>
-                            <span>{messages.length} Data Blocks</span>
+            {/* Chat Window — takes up all available space */}
+            <main className="flex-1 z-10 overflow-y-auto px-4 py-4">
+                <div className="max-w-2xl mx-auto space-y-4 flex flex-col">
+                    {messages.length === 0 ? (
+                        <div className="m-auto text-center opacity-30 py-20">
+                            <MessageSquare size={40} className="mx-auto mb-3" />
+                            <p className="text-sm">Tap the microphone to start a conversation</p>
                         </div>
-                    )}
-                </section>
-
-                {/* Transcript */}
-                <section className="w-80 clinical-panel flex flex-col overflow-hidden">
-                    <div className="p-5 border-b border-white/5 flex items-center gap-2">
-                        <MessageSquare size={16} className="text-gray-400" />
-                        <span className="text-xs font-semibold uppercase tracking-widest text-gray-300">Live Transcript</span>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-5 pb-8 space-y-6 flex flex-col">
-                        {messages.length === 0 ? (
-                            <div className="m-auto text-center opacity-30">
-                                <MessageSquare size={32} className="mx-auto mb-2" />
-                                <p className="text-sm">Initiate protocol to begin</p>
-                            </div>
-                        ) : (
-                            messages.map((m) => (
-                                <div key={m.id} className={`flex flex-col max-w-[85%] ${m.role === 'customer' || m.role === 'user' ? 'self-end items-end' : 'self-start items-start'}`}>
-                                    <span className="text-[10px] text-gray-500 uppercase tracking-widest mb-1 ml-1">
-                                        {m.role === 'agent' ? 'AI' : 'Client'}
-                                    </span>
-                                    <div className={`p-3 rounded-2xl text-sm leading-relaxed ${
-                                        m.role === 'agent' 
+                    ) : (
+                        messages.map((m) => (
+                            <div key={m.id} className={`flex flex-col max-w-[80%] ${
+                                m.role === 'customer' || m.role === 'user' 
+                                    ? 'self-end items-end' 
+                                    : 'self-start items-start'
+                            }`}>
+                                <span className="text-[10px] text-gray-500 uppercase tracking-widest mb-1 px-1">
+                                    {m.role === 'agent' ? 'AI' : 'You'}
+                                </span>
+                                <div className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
+                                    m.role === 'agent' 
                                         ? 'bg-white/10 text-mercury rounded-tl-sm' 
                                         : 'bg-archytech-violet rounded-tr-sm text-mercury'
-                                    }`}>
-                                        {m.text}
-                                    </div>
+                                }`}>
+                                    {m.text}
                                 </div>
-                            ))
-                        )}
-                    </div>
-                </section>
+                            </div>
+                        ))
+                    )}
+                    <div ref={chatEndRef} />
+                </div>
             </main>
+
+            {/* Mic Control Strip — compact at bottom, shrinks further when active */}
+            <footer className={`z-10 border-t border-white/5 bg-obsidian/80 backdrop-blur-md flex flex-col items-center justify-center relative transition-all duration-300 ${
+                active ? 'py-3' : 'py-6'
+            }`}>
+                {/* Waveform canvas — only visible when active */}
+                {active && (
+                    <canvas ref={canvasRef} className="absolute inset-x-0 top-0 bottom-0 w-full h-full opacity-40 pointer-events-none" />
+                )}
+                
+                <div className="flex items-center gap-4 relative z-10">
+                    <button 
+                        onClick={toggleAgent}
+                        className={`relative flex items-center justify-center rounded-full transition-all duration-300 ${
+                            active 
+                                ? 'w-12 h-12 bg-red-500/20 text-red-400 hover:bg-red-500/30 ring-1 ring-red-500/50' 
+                                : 'w-16 h-16 bg-archytech-violet text-mercury hover:scale-105 shadow-[0_0_40px_rgba(139,92,246,0.5)]'
+                        }`}
+                    >
+                        {active ? <Square fill="currentColor" size={18} /> : <Mic size={28} />}
+                        {active && <div className="absolute inset-0 rounded-full border border-red-500/50 animate-ping opacity-50" />}
+                    </button>
+                    {!active && (
+                        <span className="text-xs text-gray-400 tracking-wide">Tap to start</span>
+                    )}
+                </div>
+            </footer>
         </div>
     );
 }
