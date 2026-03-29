@@ -27,7 +27,7 @@ export async function PUT(request, { params }) {
 
         const updateData = {};
         const allowedFields = ["name", "slug", "description", "knowledge_base", "greeting",
-                  "voice_en", "voice_es", "language", "phone_number", "whatsapp_number", "active"];
+                  "voice_en", "voice_es", "language", "phone_number", "whatsapp_number", "whatsapp_number_id", "active"];
 
         for (let field of allowedFields) {
             if (data[field] !== undefined) {

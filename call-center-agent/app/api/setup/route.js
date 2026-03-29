@@ -52,6 +52,7 @@ FAQ & OBJECTIONS:
             language: "auto",
             phone_number: "",
             whatsapp_number: "",
+            whatsapp_number_id: "",
             active: true,
             created_at: new Date().toISOString(),
             call_count: 0,

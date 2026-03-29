@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Mic, ChevronLeft, Users, Plus, Loader2, ExternalLink, AlertTriangle, CheckCircle2, X, MessageSquare, Clock } from 'lucide-react';
+import { Mic, ChevronLeft, Users, Plus, Loader2, ExternalLink, AlertTriangle, CheckCircle2, X, MessageSquare, Clock, Phone } from 'lucide-react';
 
 const EMPTY_AGENT = {
     name: '',
@@ -12,6 +12,7 @@ const EMPTY_AGENT = {
     voice_en: 'en-US-AriaNeural',
     voice_es: 'es-MX-DaliaNeural',
     language: 'auto',
+    whatsapp_number_id: '',
 };
 
 export default function AdminPage() {
@@ -312,6 +313,19 @@ export default function AdminPage() {
                                         <p className="text-[10px] text-mercury/30 mt-1">Agent URL: /agent/{newAgent.slug || generateSlug(newAgent.name) || 'slug'}</p>
                                     </FormField>
                                 </div>
+                                <FormField label="Meta WhatsApp Phone Number ID">
+                                    <div className="relative">
+                                        <Phone size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
+                                        <input
+                                            type="text"
+                                            value={newAgent.whatsapp_number_id}
+                                            onChange={(e) => handleNewAgentChange('whatsapp_number_id', e.target.value)}
+                                            placeholder="e.g. 123456789012345"
+                                            className={inputClass + " pl-9 font-mono"}
+                                        />
+                                    </div>
+                                    <p className="text-[10px] text-mercury/30 mt-1">Found in Meta Developer Console → WhatsApp → API Setup → Phone Number ID. This routes incoming messages to this agent.</p>
+                                </FormField>
                             </div>
 
                             {/* Description & Greeting */}
@@ -470,6 +484,33 @@ export default function AdminPage() {
                                 <FormField label="Greeting Message">
                                     <textarea rows={2} value={selected.greeting || ''} onChange={(e) => handleChange('greeting', e.target.value)} className={inputClass + " resize-none"} />
                                 </FormField>
+                            </div>
+
+                            {/* WhatsApp Integration */}
+                            <div className="clinical-panel p-6 space-y-4">
+                                <h3 className="text-xs uppercase tracking-widest text-mercury/50 font-semibold mb-4 flex items-center gap-2">
+                                    <Phone size={14} /> WhatsApp Integration
+                                </h3>
+                                <FormField label="Meta Phone Number ID">
+                                    <div className="relative">
+                                        <Phone size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
+                                        <input
+                                            type="text"
+                                            value={selected.whatsapp_number_id || ''}
+                                            onChange={(e) => handleChange('whatsapp_number_id', e.target.value)}
+                                            placeholder="e.g. 123456789012345"
+                                            className={inputClass + " pl-9 font-mono"}
+                                        />
+                                    </div>
+                                    <p className="text-[10px] text-mercury/30 mt-1">The Phone Number ID from Meta Developer Console → WhatsApp → API Setup. This is how the webhook routes incoming messages to this agent.</p>
+                                </FormField>
+                                <div className="bg-archytech-violet/5 border border-archytech-violet/10 rounded-lg p-3">
+                                    <p className="text-[11px] text-mercury/50">
+                                        <span className="text-archytech-violet font-semibold">Webhook URL:</span>{' '}
+                                        <code className="text-mercury/70 text-[10px]">https://{typeof window !== 'undefined' ? window.location.host : 'yourdomain.com'}/api/webhook/whatsapp</code>
+                                    </p>
+                                    <p className="text-[10px] text-mercury/30 mt-1">Use this single URL in your Meta App's webhook configuration. All tenants share one endpoint.</p>
+                                </div>
                             </div>
 
                             <div className="clinical-panel p-6">

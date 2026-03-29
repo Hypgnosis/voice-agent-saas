@@ -65,6 +65,7 @@ export async function POST(request) {
             language: data.language || 'auto',
             phone_number: data.phone_number || '',
             whatsapp_number: data.whatsapp_number || '',
+            whatsapp_number_id: data.whatsapp_number_id || '',
             active: true,
             created_at: new Date().toISOString(),
             call_count: 0,
