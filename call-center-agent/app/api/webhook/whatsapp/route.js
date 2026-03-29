@@ -5,7 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 export const dynamic = 'force-dynamic';
 
-const META_VERIFY_TOKEN = process.env.META_VERIFY_TOKEN || 'sovereign_secure_token_123';
+const META_VERIFY_TOKEN = process.env.META_VERIFY_TOKEN;
 const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
 const OPENCLAW_URL = process.env.OPENCLAW_URL || 'http://127.0.0.1:3000/api/v1/tasks';
 const GATEWAY_TOKEN = process.env.GATEWAY_TOKEN;
@@ -73,7 +73,7 @@ export async function GET(request) {
     const challenge = searchParams.get("hub.challenge");
 
     // Failsafe: strip any invisible quotes or whitespace from the Netlify environment variable
-    const expectedToken = (process.env.META_VERIFY_TOKEN || 'sovereign_secure_token_123').replace(/['"]/g, '').trim();
+    const expectedToken = (process.env.META_VERIFY_TOKEN || '').replace(/['"]/g, '').trim();
 
     if (mode === "subscribe" && token === expectedToken) {
         console.log("✅ Meta Webhook verified successfully.");
@@ -87,7 +87,7 @@ export async function GET(request) {
         });
     }
 
-    console.error(`❌ Webhook verification failed. Expected: ${expectedToken}, Got: ${token}`);
+    console.error(`❌ Webhook verification failed. Mode: ${mode}, Token match: ${token === expectedToken}`);
     return new Response("Forbidden", { status: 403 });
 }
 
