@@ -96,6 +96,8 @@ export async function POST(request) {
                 calendar_id: safeCalendarId,
                 event_type_id: safeEventTypeId,
             },
+            // Client Portal Access
+            client_pin: sanitizeString(data.client_pin),
             active: true,
             created_at: new Date().toISOString(),
             call_count: 0,

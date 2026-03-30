@@ -206,7 +206,8 @@ export async function POST(request) {
 // INTERNAL AGENT — Two-trip Function Calling for Dra. Mya
 // ═══════════════════════════════════════════════════════════════════════════
 async function handleInternalAgent(business, history) {
-    const systemPrompt = getInternalSystemPrompt(business);
+    const timezone = business.timezone || 'America/Merida';
+    const systemPrompt = getInternalSystemPrompt(business, timezone);
     const toolDeclarations = getInternalToolDeclarations();
 
     console.log('🩺 Internal Agent activated — Function Calling mode');

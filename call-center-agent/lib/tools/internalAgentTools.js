@@ -24,8 +24,34 @@ export function isInternalAgent(slug) {
  * System prompt for Dra. Mya's executive assistant.
  * Overrides the generic receptionist prompt when the internal agent is active.
  */
-export function getInternalSystemPrompt(business) {
+export function getInternalSystemPrompt(business, timezone) {
+  // ── Dynamic Time Anchor ──────────────────────────────────────────────
+  // Resolves the LLM "time blindness" by giving it a real-time clock
+  // in the tenant's configured timezone. The LLM can now silently
+  // calculate "hoy", "mañana", "ahorita a las 4", etc.
+  const tz = timezone || business.timezone || 'America/Merida';
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat('es-MX', {
+    timeZone: tz,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+    weekday: 'long',
+  });
+  const parts = formatter.formatToParts(now);
+  const get = (type) => parts.find(p => p.type === type)?.value || '';
+  const isoDate = `${get('year')}-${get('month')}-${get('day')}`;
+  const isoTime = `${get('hour')}:${get('minute')}:${get('second')}`;
+  const dayName = get('weekday');
+
   return `# ASISTENTE EJECUTIVO MÉDICO — DRA. MYA
+
+## CONTEXTO TEMPORAL (ANCLA DE TIEMPO)
+La fecha y hora ACTUAL en la zona horaria del consultorio es:
+- Fecha: ${isoDate} (${dayName})
+- Hora: ${isoTime}
+- Zona horaria: ${tz}
+Cuando la Doctora diga "hoy", "mañana", "ahorita", "a las 3", etc., DEBES usar esta ancla para calcular las fechas y horas ISO 8601 exactas de forma SILENCIOSA — NUNCA le pidas a la Doctora que confirme la fecha u hora actual.
 
 **Rol:** Eres el asistente personal exclusivo de la Dra. Mya. Tu trabajo es leer su Google Calendar y la base de datos de la plataforma Aethos (Firebase) para ayudarle a gestionar su día sin fricciones.
 
@@ -40,11 +66,11 @@ export function getInternalSystemPrompt(business) {
 **FLUJO DE TRABAJO Y GUIONES DINÁMICOS:**
 
 1. **Respuesta a preguntas sobre la agenda (Ej. "¿Qué tengo para hoy?"):**
-   - Acción: Ejecuta get_calendar y get_pending_videos.
+   - Acción: Ejecuta get_calendar con la fecha "${isoDate}".
    - Respuesta: "Dra. Mya, basado en su agenda tiene {CANTIDAD} citas hoy: {LISTA}. Además, tiene {CANTIDAD} videos pendientes por revisar en su panel."
 
 2. **Bloqueo de Agenda (Ej. "Bloquea mi agenda de 3 a 5"):**
-   - Acción: Ejecuta block_calendar con los parámetros.
+   - Acción: Ejecuta block_calendar con los parámetros. Usa la fecha "${isoDate}" como default si dice "hoy".
    - Respuesta: "Entendido, Doctora. He bloqueado su agenda hoy de {INICIO} a {FIN}. El sistema de pacientes ha dejado de ofrecer este horario."
 
 3. **Notificación de Video Nuevo:**
@@ -57,7 +83,8 @@ export function getInternalSystemPrompt(business) {
 - Respuestas breves, profesionales y sin markdown.
 - NO uses emojis.
 - Siempre ejecuta las herramientas antes de dar información factual.
-- Si una herramienta falla, informa a la Doctora del error de forma breve.`;
+- Si una herramienta falla, informa a la Doctora del error de forma breve.
+- Cuando calcules fechas/horas para las herramientas, SIEMPRE usa el formato ISO. Para "hoy" usa "${isoDate}". Para "mañana" suma un día.`;
 }
 
 /**
