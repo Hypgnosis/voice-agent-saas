@@ -3,6 +3,24 @@ import { adminDb } from '@/lib/firebase/admin';
 
 export const dynamic = 'force-dynamic';
 
+// ─── Validation Helpers ─────────────────────────────────────────────────────
+/**
+ * Sanitizes an event_type_id value. Cal.com IDs are strictly numeric integers.
+ * Returns the stringified integer if valid, or '' if empty/invalid.
+ */
+function sanitizeEventTypeId(raw) {
+    if (raw === undefined || raw === null || raw === '') return '';
+    const parsed = parseInt(String(raw).trim(), 10);
+    if (isNaN(parsed) || parsed <= 0) return '';
+    return String(parsed);
+}
+
+/** Trims a string value, returns '' for falsy inputs. */
+function sanitizeString(val) {
+    if (!val) return '';
+    return String(val).trim();
+}
+
 export async function GET() {
     try {
         if (!adminDb) {
@@ -54,6 +72,11 @@ export async function POST(request) {
             return NextResponse.json({ error: `An agent with slug "${data.slug}" already exists.` }, { status: 409 });
         }
 
+        // Sanitize integration fields before persisting
+        const safeCalendarApiKey = sanitizeString(data.calendar_api_key);
+        const safeCalendarId     = sanitizeString(data.calendar_id);
+        const safeEventTypeId    = sanitizeEventTypeId(data.event_type_id);
+
         const docRef = await adminDb.collection('businesses').add({
             name: data.name,
             slug: data.slug,
@@ -66,6 +89,13 @@ export async function POST(request) {
             phone_number: data.phone_number || '',
             whatsapp_number: data.whatsapp_number || '',
             whatsapp_number_id: data.whatsapp_number_id || '',
+            // Tenant Vault: Timezone & Calendar Integrations
+            timezone: data.timezone || 'America/Merida',
+            integrations: {
+                calendar_api_key: safeCalendarApiKey,
+                calendar_id: safeCalendarId,
+                event_type_id: safeEventTypeId,
+            },
             active: true,
             created_at: new Date().toISOString(),
             call_count: 0,

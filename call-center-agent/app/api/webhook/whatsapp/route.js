@@ -238,11 +238,12 @@ async function handleInternalAgent(business, history) {
     }));
 
     // Execute each tool and collect the results
+    // ⚡ Pass 'business' so the dispatcher can extract Tenant Vault credentials
     const functionResponseParts = [];
     for (const fc of functionCalls) {
         try {
             console.log(`  → Executing: ${fc.name}(${JSON.stringify(fc.args)})`);
-            const result = await dispatchToolCall(fc.name, fc.args || {});
+            const result = await dispatchToolCall(fc.name, fc.args || {}, business);
             functionResponseParts.push({
                 functionResponse: { name: fc.name, response: result },
             });

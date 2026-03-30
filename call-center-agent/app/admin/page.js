@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Mic, ChevronLeft, Users, Plus, Loader2, ExternalLink, AlertTriangle, CheckCircle2, X, MessageSquare, Clock, Phone } from 'lucide-react';
+import { Mic, ChevronLeft, Users, Plus, Loader2, ExternalLink, AlertTriangle, CheckCircle2, X, MessageSquare, Clock, Phone, CalendarDays, KeyRound, Hash } from 'lucide-react';
 
 const EMPTY_AGENT = {
     name: '',
@@ -13,6 +13,11 @@ const EMPTY_AGENT = {
     voice_es: 'es-MX-DaliaNeural',
     language: 'auto',
     whatsapp_number_id: '',
+    // Tenant Vault
+    timezone: 'America/Merida',
+    calendar_api_key: '',
+    calendar_id: '',
+    event_type_id: '',
 };
 
 export default function AdminPage() {
@@ -398,6 +403,64 @@ export default function AdminPage() {
                                 </div>
                             </div>
 
+                            {/* Calendar Integrations — CREATE */}
+                            <div className="clinical-panel p-6 space-y-4">
+                                <h3 className="text-xs uppercase tracking-widest text-mercury/50 font-semibold mb-2 flex items-center gap-2">
+                                    <CalendarDays size={14} /> Calendar Integrations
+                                </h3>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <FormField label="Timezone">
+                                        <select
+                                            value={newAgent.timezone}
+                                            onChange={(e) => handleNewAgentChange('timezone', e.target.value)}
+                                            className={inputClass}
+                                        >
+                                            <option value="America/Merida">America/Merida (CST)</option>
+                                            <option value="America/Mexico_City">America/Mexico_City</option>
+                                            <option value="America/New_York">America/New_York (EST)</option>
+                                            <option value="America/Los_Angeles">America/Los_Angeles (PST)</option>
+                                            <option value="America/Chicago">America/Chicago (CST)</option>
+                                            <option value="America/Bogota">America/Bogota (COT)</option>
+                                        </select>
+                                    </FormField>
+                                    <FormField label="Calendar ID / Email">
+                                        <input
+                                            type="text"
+                                            value={newAgent.calendar_id}
+                                            onChange={(e) => handleNewAgentChange('calendar_id', e.target.value)}
+                                            placeholder="e.g. clinic@gmail.com"
+                                            className={inputClass}
+                                        />
+                                    </FormField>
+                                </div>
+                                <FormField label="Booking API Key (Cal.com / Google)">
+                                    <div className="relative">
+                                        <KeyRound size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
+                                        <input
+                                            type="password"
+                                            value={newAgent.calendar_api_key}
+                                            onChange={(e) => handleNewAgentChange('calendar_api_key', e.target.value)}
+                                            placeholder="cal_live_xxxxxx"
+                                            className={inputClass + " pl-9 font-mono"}
+                                        />
+                                    </div>
+                                    <p className="text-[10px] text-mercury/30 mt-1">Stored securely in Firebase. Allows the AI agent to read/write to this tenant's calendar.</p>
+                                </FormField>
+                                <FormField label="Event Type ID (Cal.com)">
+                                    <div className="relative">
+                                        <Hash size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
+                                        <input
+                                            type="text"
+                                            value={newAgent.event_type_id}
+                                            onChange={(e) => handleNewAgentChange('event_type_id', e.target.value)}
+                                            placeholder="e.g. 123456"
+                                            className={inputClass + " pl-9 font-mono"}
+                                        />
+                                    </div>
+                                    <p className="text-[10px] text-mercury/30 mt-1">Required for creating bookings/blocks. Find it in Cal.com → Event Types → ID.</p>
+                                </FormField>
+                            </div>
+
                             {/* Actions */}
                             <div className="flex items-center justify-between pt-4 pb-12">
                                 <button
@@ -535,6 +598,79 @@ export default function AdminPage() {
                                         <input type="text" value={selected.voice_es || ''} onChange={(e) => handleChange('voice_es', e.target.value)} className={inputClass} />
                                     </FormField>
                                 </div>
+                            </div>
+
+                            {/* Calendar Integrations — EDIT */}
+                            <div className="clinical-panel p-6 space-y-4">
+                                <h3 className="text-xs uppercase tracking-widest text-mercury/50 font-semibold mb-4 flex items-center gap-2">
+                                    <CalendarDays size={14} /> Calendar Integrations
+                                </h3>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <FormField label="Timezone">
+                                        <select
+                                            value={selected.timezone || 'America/Merida'}
+                                            onChange={(e) => handleChange('timezone', e.target.value)}
+                                            className={inputClass}
+                                        >
+                                            <option value="America/Merida">America/Merida (CST)</option>
+                                            <option value="America/Mexico_City">America/Mexico_City</option>
+                                            <option value="America/New_York">America/New_York (EST)</option>
+                                            <option value="America/Los_Angeles">America/Los_Angeles (PST)</option>
+                                            <option value="America/Chicago">America/Chicago (CST)</option>
+                                            <option value="America/Bogota">America/Bogota (COT)</option>
+                                        </select>
+                                    </FormField>
+                                    <FormField label="Calendar ID / Email">
+                                        <input
+                                            type="text"
+                                            value={selected.integrations?.calendar_id || ''}
+                                            onChange={(e) => {
+                                                setSelected(prev => ({
+                                                    ...prev,
+                                                    integrations: { ...prev.integrations, calendar_id: e.target.value }
+                                                }));
+                                            }}
+                                            placeholder="e.g. clinic@gmail.com"
+                                            className={inputClass}
+                                        />
+                                    </FormField>
+                                </div>
+                                <FormField label="Booking API Key (Cal.com / Google)">
+                                    <div className="relative">
+                                        <KeyRound size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
+                                        <input
+                                            type="password"
+                                            value={selected.integrations?.calendar_api_key || ''}
+                                            onChange={(e) => {
+                                                setSelected(prev => ({
+                                                    ...prev,
+                                                    integrations: { ...prev.integrations, calendar_api_key: e.target.value }
+                                                }));
+                                            }}
+                                            placeholder="cal_live_xxxxxx"
+                                            className={inputClass + " pl-9 font-mono"}
+                                        />
+                                    </div>
+                                    <p className="text-[10px] text-mercury/30 mt-1">Stored securely in Firebase. Allows the AI agent to read/write to this tenant's calendar.</p>
+                                </FormField>
+                                <FormField label="Event Type ID (Cal.com)">
+                                    <div className="relative">
+                                        <Hash size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
+                                        <input
+                                            type="text"
+                                            value={selected.integrations?.event_type_id || ''}
+                                            onChange={(e) => {
+                                                setSelected(prev => ({
+                                                    ...prev,
+                                                    integrations: { ...prev.integrations, event_type_id: e.target.value }
+                                                }));
+                                            }}
+                                            placeholder="e.g. 123456"
+                                            className={inputClass + " pl-9 font-mono"}
+                                        />
+                                    </div>
+                                    <p className="text-[10px] text-mercury/30 mt-1">Required for creating bookings/blocks. Find it in Cal.com → Event Types → ID.</p>
+                                </FormField>
                             </div>
 
                             <div className="clinical-panel p-6 flex items-center justify-between">
