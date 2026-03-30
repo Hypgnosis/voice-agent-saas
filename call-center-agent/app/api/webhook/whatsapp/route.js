@@ -95,17 +95,25 @@ export async function GET(request) {
 export async function POST(request) {
     try {
         const data = await request.json();
+
+        // KILL SWITCH: Ignore Meta's read/delivered receipts
+        if (data.entry?.[0]?.changes?.[0]?.value?.statuses) {
+            console.log("Status update ignored.");
+            return new Response("OK", { status: 200 });
+        }
+
+        // Ensure there is actually a text message to process
+        const messages = data.entry?.[0]?.changes?.[0]?.value?.messages;
+        if (!messages || messages.length === 0) {
+            return new Response("OK", { status: 200 });
+        }
+
         const entry = data.entry?.[0] || {};
         const changes = entry.changes?.[0] || {};
         const value = changes.value || {};
         
         // THIS IS THE CRITICAL KEY FOR MULTI-TENANT ROUTING
         const phoneNumberId = value.metadata?.phone_number_id;
-
-        // Ignore status updates, only process actual messages
-        if (!value.messages || !value.messages[0]) {
-            return NextResponse.json({ status: "ignored" }, { status: 200 });
-        }
 
         const message = value.messages[0];
         const patientPhone = message.from;
