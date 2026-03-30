@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase/admin';
 import { GoogleGenAI } from '@google/genai';
 import { v4 as uuidv4 } from 'uuid';
+import { isInternalAgent, getInternalSystemPrompt, getInternalToolDeclarations } from '@/lib/tools/internalAgentTools';
+import { dispatchToolCall } from '@/lib/tools/calendarFunctions';
 
 export const dynamic = 'force-dynamic';
 
@@ -103,8 +105,8 @@ export async function POST(request) {
         }
 
         // Ensure there is actually a text message to process
-        const messages = data.entry?.[0]?.changes?.[0]?.value?.messages;
-        if (!messages || messages.length === 0) {
+        const incomingMessages = data.entry?.[0]?.changes?.[0]?.value?.messages;
+        if (!incomingMessages || incomingMessages.length === 0) {
             return new Response("OK", { status: 200 });
         }
 
@@ -140,7 +142,7 @@ export async function POST(request) {
         const businessDoc = bSnap.docs[0];
         const business = businessDoc.data();
         const bid = businessDoc.id;
-        const slug = business.slug; // Extracted from DB, not from URL
+        const slug = business.slug;
 
         // Fetch Conversation History for this specific patient
         const logsSnap = await adminDb.collection('call_logs')
@@ -160,47 +162,16 @@ export async function POST(request) {
         // Append the current message
         history.push({ role: 'user', parts: [{ text: userText }] });
 
-        // Build System Prompt
-        const systemPrompt = `You are a professional, friendly AI receptionist for ${business.name}.
-BUSINESS DESCRIPTION: ${business.description}
-KNOWLEDGE BASE: ${business.knowledge_base}
+        // ═══════════════════════════════════════════════════════════════════
+        // ROUTE: Internal Agent (Dra. Mya) vs. Standard Receptionist
+        // ═══════════════════════════════════════════════════════════════════
+        let cleanText;
 
-VOICE AGENT BOOKING SYSTEM:
-- When a patient agrees to book an appointment, output the special tag at the VERY END of your response.
-- Format: [BOOK] {"date": "ISO_DATE", "type": "live/async", "symptoms": "BRIEF_SYMPTOMS"}
-- NEVER mention the code "[BOOK]" out loud.
-
-RULES:
-- Keep answers brief, conversational, and natural.
-- Do NOT use markdown.
-- Match the caller's language.`;
-
-        // Call Gemini
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.0-flash',
-            contents: history,
-            config: { systemInstruction: systemPrompt }
-        });
-
-        let responseText = response.text;
-        let bookData = null;
-
-        // Check for Booking Intent
-        const bookMatch = responseText.match(/\[BOOK\]\s*(\{.*?\})/s);
-        if (bookMatch) {
-            try {
-                bookData = JSON.parse(bookMatch[1]);
-                console.log(`🚀 Booking Intent detected for ${patientPhone}:`, bookData);
-                responseText = responseText.replace(/\[BOOK\]\s*\{.*?\}/gs, '').trim();
-                
-                triggerOpenClaw(patientPhone, bookData, history).catch(console.error);
-            } catch (e) {
-                console.error("Failed to parse BOOK tag:", e);
-            }
+        if (isInternalAgent(slug)) {
+            cleanText = await handleInternalAgent(business, history);
+        } else {
+            cleanText = await handleStandardAgent(business, history, patientPhone, phoneNumberId);
         }
-
-        // Clean any language tags
-        const cleanText = responseText.replace(/\[(EN|ES|FR|PT)\]/gi, '').trim();
 
         // Save to Firebase
         await adminDb.collection('call_logs').add({
@@ -228,4 +199,140 @@ RULES:
         console.error("WhatsApp Webhook Error:", e);
         return NextResponse.json({ status: "error", details: e.message }, { status: 500 });
     }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INTERNAL AGENT — Two-trip Function Calling for Dra. Mya
+// ═══════════════════════════════════════════════════════════════════════════
+async function handleInternalAgent(business, history) {
+    const systemPrompt = getInternalSystemPrompt(business);
+    const toolDeclarations = getInternalToolDeclarations();
+
+    console.log('🩺 Internal Agent activated — Function Calling mode');
+
+    // ── FIRST TRIP: Send message with tools available ───────────────────
+    const firstResponse = await ai.models.generateContent({
+        model: 'gemini-2.0-flash',
+        contents: history,
+        config: {
+            systemInstruction: systemPrompt,
+            tools: [{ functionDeclarations: toolDeclarations }],
+        },
+    });
+
+    // ── CHECK: Did Gemini request any tool calls? ───────────────────────
+    const functionCalls = firstResponse.functionCalls;
+
+    if (!functionCalls || functionCalls.length === 0) {
+        // No tools needed — Gemini answered directly
+        return cleanResponse(firstResponse.text || '');
+    }
+
+    // ── EXECUTE ALL REQUESTED TOOLS ─────────────────────────────────────
+    console.log(`🔧 Gemini requested ${functionCalls.length} tool call(s)`);
+
+    // Build the function call parts (what Gemini asked for)
+    const modelFunctionCallParts = functionCalls.map(fc => ({
+        functionCall: { name: fc.name, args: fc.args },
+    }));
+
+    // Execute each tool and collect the results
+    const functionResponseParts = [];
+    for (const fc of functionCalls) {
+        try {
+            console.log(`  → Executing: ${fc.name}(${JSON.stringify(fc.args)})`);
+            const result = await dispatchToolCall(fc.name, fc.args || {});
+            functionResponseParts.push({
+                functionResponse: { name: fc.name, response: result },
+            });
+        } catch (error) {
+            console.error(`  ✗ Tool "${fc.name}" failed:`, error);
+            functionResponseParts.push({
+                functionResponse: {
+                    name: fc.name,
+                    response: {
+                        status: 'error',
+                        message: 'Fallo de conexión con el servicio.',
+                        details: error.message,
+                    },
+                },
+            });
+        }
+    }
+
+    // ── SECOND TRIP: Feed tool results back to Gemini ───────────────────
+    const secondTripContents = [
+        ...history,
+        { role: 'model', parts: modelFunctionCallParts },
+        { role: 'user', parts: functionResponseParts },
+    ];
+
+    const secondResponse = await ai.models.generateContent({
+        model: 'gemini-2.0-flash',
+        contents: secondTripContents,
+        config: {
+            systemInstruction: systemPrompt,
+            tools: [{ functionDeclarations: toolDeclarations }],
+        },
+    });
+
+    return cleanResponse(secondResponse.text || '');
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STANDARD AGENT — Original multi-tenant receptionist (unchanged logic)
+// ═══════════════════════════════════════════════════════════════════════════
+async function handleStandardAgent(business, history, patientPhone, phoneNumberId) {
+    const systemPrompt = `You are a professional, friendly AI receptionist for ${business.name}.
+BUSINESS DESCRIPTION: ${business.description}
+KNOWLEDGE BASE: ${business.knowledge_base}
+
+VOICE AGENT BOOKING SYSTEM:
+- When a patient agrees to book an appointment, output the special tag at the VERY END of your response.
+- Format: [BOOK] {"date": "ISO_DATE", "type": "live/async", "symptoms": "BRIEF_SYMPTOMS"}
+- NEVER mention the code "[BOOK]" out loud.
+
+RULES:
+- Keep answers brief, conversational, and natural.
+- Do NOT use markdown.
+- Match the caller's language.`;
+
+    // Call Gemini (standard — no tools)
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.0-flash',
+        contents: history,
+        config: { systemInstruction: systemPrompt }
+    });
+
+    let responseText = response.text;
+    let bookData = null;
+
+    // Check for Booking Intent
+    const bookMatch = responseText.match(/\[BOOK\]\s*(\{.*?\})/s);
+    if (bookMatch) {
+        try {
+            bookData = JSON.parse(bookMatch[1]);
+            console.log(`🚀 Booking Intent detected for ${patientPhone}:`, bookData);
+            responseText = responseText.replace(/\[BOOK\]\s*\{.*?\}/gs, '').trim();
+            
+            triggerOpenClaw(patientPhone, bookData, history).catch(console.error);
+        } catch (e) {
+            console.error("Failed to parse BOOK tag:", e);
+        }
+    }
+
+    return cleanResponse(responseText);
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// UTILS
+// ═══════════════════════════════════════════════════════════════════════════
+function cleanResponse(text) {
+    return text
+        .replace(/\[(EN|ES|FR|PT)\]/gi, '')
+        .replace(/\[BOOK\]\s*\{.*?\}/gs, '')
+        .trim();
 }
