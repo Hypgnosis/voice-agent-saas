@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { Mic, ChevronLeft, Users, Plus, Loader2, ExternalLink, AlertTriangle, CheckCircle2, X, MessageSquare, Clock, Phone, CalendarDays, KeyRound, Hash, Shield, Lock } from 'lucide-react';
 
@@ -77,6 +77,12 @@ function GodModeGate({ onAuthenticated }) {
 }
 
 
+// ═══════════════════════════════════════════════════════════════════════════
+// STYLE CONSTANTS — NO wrapper components, just class strings
+// ═══════════════════════════════════════════════════════════════════════════
+const IC = "w-full bg-obsidian border border-border-clinical rounded-lg px-3 py-2.5 text-sm text-mercury focus:border-archytech-violet/50 focus:outline-none transition-colors placeholder:text-mercury/20";
+const LC = "block text-xs text-mercury/50 mb-1.5 font-medium uppercase tracking-wider";
+
 const EMPTY_AGENT = {
     name: '',
     slug: '',
@@ -132,10 +138,10 @@ function Dashboard() {
         fetchBusinesses();
     }, []);
 
-    const showToast = (message, type = 'success') => {
+    const showToast = useCallback((message, type = 'success') => {
         setToast({ message, type });
         setTimeout(() => setToast(null), 4000);
-    };
+    }, []);
 
     const fetchBusinesses = async () => {
         setLoading(true);
@@ -190,13 +196,13 @@ function Dashboard() {
         fetchLogs(biz.id);
     };
 
-    const handleChange = (field, value) => {
+    const handleChange = useCallback((field, value) => {
         setSelected(prev => ({ ...prev, [field]: value }));
-    };
+    }, []);
 
-    const handleNewAgentChange = (field, value) => {
+    const handleNewAgentChange = useCallback((field, value) => {
         setNewAgent(prev => ({ ...prev, [field]: value }));
-    };
+    }, []);
 
     const generateSlug = (name) => {
         return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
@@ -261,15 +267,6 @@ function Dashboard() {
         setCreating(true);
         setNewAgent({ ...EMPTY_AGENT });
     };
-
-    const FormField = ({ label, children }) => (
-        <div>
-            <label className="block text-xs text-mercury/50 mb-1.5 font-medium uppercase tracking-wider">{label}</label>
-            {children}
-        </div>
-    );
-
-    const inputClass = "w-full bg-obsidian border border-border-clinical rounded-lg px-3 py-2.5 text-sm text-mercury focus:border-archytech-violet/50 focus:outline-none transition-colors placeholder:text-mercury/20";
 
     return (
         <main className="min-h-screen bg-obsidian text-mercury font-sans">
@@ -381,65 +378,74 @@ function Dashboard() {
                             <div className="clinical-panel p-6 space-y-4">
                                 <h3 className="text-xs uppercase tracking-widest text-mercury/50 font-semibold mb-2">Identity</h3>
                                 <div className="grid grid-cols-2 gap-4">
-                                    <FormField label="Agent Name *">
-                                        <input type="text" value={newAgent.name} onChange={(e) => { handleNewAgentChange('name', e.target.value); if (!newAgent.slug) handleNewAgentChange('slug', generateSlug(e.target.value)); }} placeholder="e.g. Aethos Medical" className={inputClass} />
-                                    </FormField>
-                                    <FormField label="URL Slug *">
-                                        <input type="text" value={newAgent.slug || generateSlug(newAgent.name)} onChange={(e) => handleNewAgentChange('slug', e.target.value)} placeholder="auto-generated" className={inputClass} />
+                                    <div>
+                                        <label className={LC}>Agent Name *</label>
+                                        <input type="text" value={newAgent.name} onChange={(e) => { handleNewAgentChange('name', e.target.value); if (!newAgent.slug) handleNewAgentChange('slug', generateSlug(e.target.value)); }} placeholder="e.g. Aethos Medical" className={IC} />
+                                    </div>
+                                    <div>
+                                        <label className={LC}>URL Slug *</label>
+                                        <input type="text" value={newAgent.slug || generateSlug(newAgent.name)} onChange={(e) => handleNewAgentChange('slug', e.target.value)} placeholder="auto-generated" className={IC} />
                                         <p className="text-[10px] text-mercury/30 mt-1">Agent URL: /agent/{newAgent.slug || generateSlug(newAgent.name) || 'slug'}</p>
-                                    </FormField>
+                                    </div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
-                                    <FormField label="Meta WhatsApp Phone Number ID">
+                                    <div>
+                                        <label className={LC}>Meta WhatsApp Phone Number ID</label>
                                         <div className="relative">
                                             <Phone size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
-                                            <input type="text" value={newAgent.whatsapp_number_id} onChange={(e) => handleNewAgentChange('whatsapp_number_id', e.target.value)} placeholder="e.g. 123456789012345" className={inputClass + " pl-9 font-mono"} />
+                                            <input type="text" value={newAgent.whatsapp_number_id} onChange={(e) => handleNewAgentChange('whatsapp_number_id', e.target.value)} placeholder="e.g. 123456789012345" className={IC + " pl-9 font-mono"} />
                                         </div>
-                                    </FormField>
-                                    <FormField label="Client Portal PIN">
+                                    </div>
+                                    <div>
+                                        <label className={LC}>Client Portal PIN</label>
                                         <div className="relative">
                                             <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
-                                            <input type="text" value={newAgent.client_pin} onChange={(e) => handleNewAgentChange('client_pin', e.target.value)} placeholder="e.g. 8472" className={inputClass + " pl-9 font-mono"} />
+                                            <input type="text" value={newAgent.client_pin} onChange={(e) => handleNewAgentChange('client_pin', e.target.value)} placeholder="e.g. 8472" className={IC + " pl-9 font-mono"} />
                                         </div>
                                         <p className="text-[10px] text-mercury/30 mt-1">This PIN is given to the client to access their isolated /portal dashboard.</p>
-                                    </FormField>
+                                    </div>
                                 </div>
                             </div>
 
                             {/* Description & Greeting */}
                             <div className="clinical-panel p-6 space-y-4">
                                 <h3 className="text-xs uppercase tracking-widest text-mercury/50 font-semibold mb-2">Personality</h3>
-                                <FormField label="Business Description">
-                                    <textarea rows={4} value={newAgent.description} onChange={(e) => handleNewAgentChange('description', e.target.value)} placeholder="Describe the business this agent represents." className={inputClass + " resize-none"} />
-                                </FormField>
-                                <FormField label="Greeting Message">
-                                    <textarea rows={2} value={newAgent.greeting} onChange={(e) => handleNewAgentChange('greeting', e.target.value)} placeholder="The first thing the agent says" className={inputClass + " resize-none"} />
-                                </FormField>
+                                <div>
+                                    <label className={LC}>Business Description</label>
+                                    <textarea rows={4} value={newAgent.description} onChange={(e) => handleNewAgentChange('description', e.target.value)} placeholder="Describe the business this agent represents." className={IC + " resize-none"} />
+                                </div>
+                                <div>
+                                    <label className={LC}>Greeting Message</label>
+                                    <textarea rows={2} value={newAgent.greeting} onChange={(e) => handleNewAgentChange('greeting', e.target.value)} placeholder="The first thing the agent says" className={IC + " resize-none"} />
+                                </div>
                             </div>
 
                             {/* Knowledge Base */}
                             <div className="clinical-panel p-6 space-y-4">
                                 <h3 className="text-xs uppercase tracking-widest text-mercury/50 font-semibold mb-2">Knowledge Base</h3>
-                                <textarea rows={14} value={newAgent.knowledge_base} onChange={(e) => handleNewAgentChange('knowledge_base', e.target.value)} placeholder={`SERVICES & PRICES:\n- Service A: $XX\n\nHOURS:\n- Mon-Fri: 9am - 5pm`} className={inputClass + " resize-none font-mono text-xs"} />
+                                <textarea rows={14} value={newAgent.knowledge_base} onChange={(e) => handleNewAgentChange('knowledge_base', e.target.value)} placeholder={`SERVICES & PRICES:\n- Service A: $XX\n\nHOURS:\n- Mon-Fri: 9am - 5pm`} className={IC + " resize-none font-mono text-xs"} />
                             </div>
 
                             {/* Voice & Language */}
                             <div className="clinical-panel p-6 space-y-4">
                                 <h3 className="text-xs uppercase tracking-widest text-mercury/50 font-semibold mb-2">Voice & Language</h3>
                                 <div className="grid grid-cols-3 gap-4">
-                                    <FormField label="Primary Language">
-                                        <select value={newAgent.language} onChange={(e) => handleNewAgentChange('language', e.target.value)} className={inputClass}>
+                                    <div>
+                                        <label className={LC}>Primary Language</label>
+                                        <select value={newAgent.language} onChange={(e) => handleNewAgentChange('language', e.target.value)} className={IC}>
                                             <option value="auto">Auto-Detect</option>
                                             <option value="en-US">English (US)</option>
                                             <option value="es-MX">Spanish (MX)</option>
                                         </select>
-                                    </FormField>
-                                    <FormField label="English Voice">
-                                        <input type="text" value={newAgent.voice_en} onChange={(e) => handleNewAgentChange('voice_en', e.target.value)} className={inputClass} />
-                                    </FormField>
-                                    <FormField label="Spanish Voice">
-                                        <input type="text" value={newAgent.voice_es} onChange={(e) => handleNewAgentChange('voice_es', e.target.value)} className={inputClass} />
-                                    </FormField>
+                                    </div>
+                                    <div>
+                                        <label className={LC}>English Voice</label>
+                                        <input type="text" value={newAgent.voice_en} onChange={(e) => handleNewAgentChange('voice_en', e.target.value)} className={IC} />
+                                    </div>
+                                    <div>
+                                        <label className={LC}>Spanish Voice</label>
+                                        <input type="text" value={newAgent.voice_es} onChange={(e) => handleNewAgentChange('voice_es', e.target.value)} className={IC} />
+                                    </div>
                                 </div>
                             </div>
 
@@ -447,8 +453,9 @@ function Dashboard() {
                             <div className="clinical-panel p-6 space-y-4">
                                 <h3 className="text-xs uppercase tracking-widest text-mercury/50 font-semibold mb-2 flex items-center gap-2"><CalendarDays size={14} /> Calendar Integrations</h3>
                                 <div className="grid grid-cols-2 gap-4">
-                                    <FormField label="Timezone">
-                                        <select value={newAgent.timezone} onChange={(e) => handleNewAgentChange('timezone', e.target.value)} className={inputClass}>
+                                    <div>
+                                        <label className={LC}>Timezone</label>
+                                        <select value={newAgent.timezone} onChange={(e) => handleNewAgentChange('timezone', e.target.value)} className={IC}>
                                             <option value="America/Merida">America/Merida (CST)</option>
                                             <option value="America/Mexico_City">America/Mexico_City</option>
                                             <option value="America/New_York">America/New_York (EST)</option>
@@ -456,23 +463,26 @@ function Dashboard() {
                                             <option value="America/Chicago">America/Chicago (CST)</option>
                                             <option value="America/Bogota">America/Bogota (COT)</option>
                                         </select>
-                                    </FormField>
-                                    <FormField label="Calendar ID / Email">
-                                        <input type="text" value={newAgent.calendar_id} onChange={(e) => handleNewAgentChange('calendar_id', e.target.value)} placeholder="e.g. clinic@gmail.com" className={inputClass} />
-                                    </FormField>
+                                    </div>
+                                    <div>
+                                        <label className={LC}>Calendar ID / Email</label>
+                                        <input type="text" value={newAgent.calendar_id} onChange={(e) => handleNewAgentChange('calendar_id', e.target.value)} placeholder="e.g. clinic@gmail.com" className={IC} />
+                                    </div>
                                 </div>
-                                <FormField label="Booking API Key (Cal.com)">
+                                <div>
+                                    <label className={LC}>Booking API Key (Cal.com)</label>
                                     <div className="relative">
                                         <KeyRound size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
-                                        <input type="password" value={newAgent.calendar_api_key} onChange={(e) => handleNewAgentChange('calendar_api_key', e.target.value)} placeholder="cal_live_xxxxxx" className={inputClass + " pl-9 font-mono"} />
+                                        <input type="password" value={newAgent.calendar_api_key} onChange={(e) => handleNewAgentChange('calendar_api_key', e.target.value)} placeholder="cal_live_xxxxxx" className={IC + " pl-9 font-mono"} />
                                     </div>
-                                </FormField>
-                                <FormField label="Event Type ID (Cal.com)">
+                                </div>
+                                <div>
+                                    <label className={LC}>Event Type ID (Cal.com)</label>
                                     <div className="relative">
                                         <Hash size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
-                                        <input type="text" value={newAgent.event_type_id} onChange={(e) => handleNewAgentChange('event_type_id', e.target.value)} placeholder="e.g. 123456" className={inputClass + " pl-9 font-mono"} />
+                                        <input type="text" value={newAgent.event_type_id} onChange={(e) => handleNewAgentChange('event_type_id', e.target.value)} placeholder="e.g. 123456" className={IC + " pl-9 font-mono"} />
                                     </div>
-                                </FormField>
+                                </div>
                             </div>
 
                             <div className="flex items-center justify-between pt-4 pb-12">
@@ -510,53 +520,74 @@ function Dashboard() {
                             <div className="clinical-panel p-6 space-y-4">
                                 <h3 className="text-xs uppercase tracking-widest text-mercury/50 font-semibold mb-4">Core Configuration</h3>
                                 <div className="grid grid-cols-2 gap-4">
-                                    <FormField label="Business Name"><input type="text" value={selected.name || ''} onChange={(e) => handleChange('name', e.target.value)} className={inputClass} /></FormField>
-                                    <FormField label="Slug"><input type="text" value={selected.slug || ''} onChange={(e) => handleChange('slug', e.target.value)} className={inputClass} /></FormField>
+                                    <div>
+                                        <label className={LC}>Business Name</label>
+                                        <input type="text" value={selected.name || ''} onChange={(e) => handleChange('name', e.target.value)} className={IC} />
+                                    </div>
+                                    <div>
+                                        <label className={LC}>Slug</label>
+                                        <input type="text" value={selected.slug || ''} onChange={(e) => handleChange('slug', e.target.value)} className={IC} />
+                                    </div>
                                 </div>
-                                <FormField label="Description"><textarea rows={3} value={selected.description || ''} onChange={(e) => handleChange('description', e.target.value)} className={inputClass + " resize-none"} /></FormField>
-                                <FormField label="Greeting Message"><textarea rows={2} value={selected.greeting || ''} onChange={(e) => handleChange('greeting', e.target.value)} className={inputClass + " resize-none"} /></FormField>
+                                <div>
+                                    <label className={LC}>Description</label>
+                                    <textarea rows={3} value={selected.description || ''} onChange={(e) => handleChange('description', e.target.value)} className={IC + " resize-none"} />
+                                </div>
+                                <div>
+                                    <label className={LC}>Greeting Message</label>
+                                    <textarea rows={2} value={selected.greeting || ''} onChange={(e) => handleChange('greeting', e.target.value)} className={IC + " resize-none"} />
+                                </div>
                             </div>
 
                             {/* WhatsApp Integration */}
                             <div className="clinical-panel p-6 space-y-4">
                                 <h3 className="text-xs uppercase tracking-widest text-mercury/50 font-semibold mb-4 flex items-center gap-2"><Phone size={14} /> WhatsApp Integration</h3>
-                                <FormField label="Meta Phone Number ID">
+                                <div>
+                                    <label className={LC}>Meta Phone Number ID</label>
                                     <div className="relative">
                                         <Phone size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
-                                        <input type="text" value={selected.whatsapp_number_id || ''} onChange={(e) => handleChange('whatsapp_number_id', e.target.value)} placeholder="e.g. 123456789012345" className={inputClass + " pl-9 font-mono"} />
+                                        <input type="text" value={selected.whatsapp_number_id || ''} onChange={(e) => handleChange('whatsapp_number_id', e.target.value)} placeholder="e.g. 123456789012345" className={IC + " pl-9 font-mono"} />
                                     </div>
-                                </FormField>
+                                </div>
                             </div>
 
                             {/* Client Portal PIN */}
                             <div className="clinical-panel p-6 space-y-4">
                                 <h3 className="text-xs uppercase tracking-widest text-mercury/50 font-semibold mb-4 flex items-center gap-2"><Lock size={14} /> Client Portal Access</h3>
-                                <FormField label="Client PIN">
+                                <div>
+                                    <label className={LC}>Client PIN</label>
                                     <div className="relative">
                                         <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
-                                        <input type="text" value={selected.client_pin || ''} onChange={(e) => handleChange('client_pin', e.target.value)} placeholder="e.g. 8472" className={inputClass + " pl-9 font-mono"} />
+                                        <input type="text" value={selected.client_pin || ''} onChange={(e) => handleChange('client_pin', e.target.value)} placeholder="e.g. 8472" className={IC + " pl-9 font-mono"} />
                                     </div>
                                     <p className="text-[10px] text-mercury/30 mt-1">Give this PIN to the client for /portal access. They use their slug + this PIN to log in.</p>
-                                </FormField>
+                                </div>
                             </div>
 
                             <div className="clinical-panel p-6">
                                 <h3 className="text-xs uppercase tracking-widest text-mercury/50 font-semibold mb-4">Knowledge Base</h3>
-                                <textarea rows={12} value={selected.knowledge_base || ''} onChange={(e) => handleChange('knowledge_base', e.target.value)} className={inputClass + " resize-none font-mono text-xs"} />
+                                <textarea rows={12} value={selected.knowledge_base || ''} onChange={(e) => handleChange('knowledge_base', e.target.value)} className={IC + " resize-none font-mono text-xs"} />
                             </div>
 
                             <div className="clinical-panel p-6">
                                 <h3 className="text-xs uppercase tracking-widest text-mercury/50 font-semibold mb-4">Voice & Language</h3>
                                 <div className="grid grid-cols-3 gap-4">
-                                    <FormField label="Primary Language">
-                                        <select value={selected.language || 'auto'} onChange={(e) => handleChange('language', e.target.value)} className={inputClass}>
+                                    <div>
+                                        <label className={LC}>Primary Language</label>
+                                        <select value={selected.language || 'auto'} onChange={(e) => handleChange('language', e.target.value)} className={IC}>
                                             <option value="auto">Auto-Detect</option>
                                             <option value="en-US">English (US)</option>
                                             <option value="es-MX">Spanish (MX)</option>
                                         </select>
-                                    </FormField>
-                                    <FormField label="English Voice"><input type="text" value={selected.voice_en || ''} onChange={(e) => handleChange('voice_en', e.target.value)} className={inputClass} /></FormField>
-                                    <FormField label="Spanish Voice"><input type="text" value={selected.voice_es || ''} onChange={(e) => handleChange('voice_es', e.target.value)} className={inputClass} /></FormField>
+                                    </div>
+                                    <div>
+                                        <label className={LC}>English Voice</label>
+                                        <input type="text" value={selected.voice_en || ''} onChange={(e) => handleChange('voice_en', e.target.value)} className={IC} />
+                                    </div>
+                                    <div>
+                                        <label className={LC}>Spanish Voice</label>
+                                        <input type="text" value={selected.voice_es || ''} onChange={(e) => handleChange('voice_es', e.target.value)} className={IC} />
+                                    </div>
                                 </div>
                             </div>
 
@@ -564,8 +595,9 @@ function Dashboard() {
                             <div className="clinical-panel p-6 space-y-4">
                                 <h3 className="text-xs uppercase tracking-widest text-mercury/50 font-semibold mb-4 flex items-center gap-2"><CalendarDays size={14} /> Calendar Integrations</h3>
                                 <div className="grid grid-cols-2 gap-4">
-                                    <FormField label="Timezone">
-                                        <select value={selected.timezone || 'America/Merida'} onChange={(e) => handleChange('timezone', e.target.value)} className={inputClass}>
+                                    <div>
+                                        <label className={LC}>Timezone</label>
+                                        <select value={selected.timezone || 'America/Merida'} onChange={(e) => handleChange('timezone', e.target.value)} className={IC}>
                                             <option value="America/Merida">America/Merida (CST)</option>
                                             <option value="America/Mexico_City">America/Mexico_City</option>
                                             <option value="America/New_York">America/New_York (EST)</option>
@@ -573,23 +605,26 @@ function Dashboard() {
                                             <option value="America/Chicago">America/Chicago (CST)</option>
                                             <option value="America/Bogota">America/Bogota (COT)</option>
                                         </select>
-                                    </FormField>
-                                    <FormField label="Calendar ID / Email">
-                                        <input type="text" value={selected.integrations?.calendar_id || ''} onChange={(e) => { setSelected(prev => ({ ...prev, integrations: { ...prev.integrations, calendar_id: e.target.value } })); }} placeholder="e.g. clinic@gmail.com" className={inputClass} />
-                                    </FormField>
+                                    </div>
+                                    <div>
+                                        <label className={LC}>Calendar ID / Email</label>
+                                        <input type="text" value={selected.integrations?.calendar_id || ''} onChange={(e) => { setSelected(prev => ({ ...prev, integrations: { ...prev.integrations, calendar_id: e.target.value } })); }} placeholder="e.g. clinic@gmail.com" className={IC} />
+                                    </div>
                                 </div>
-                                <FormField label="Booking API Key (Cal.com)">
+                                <div>
+                                    <label className={LC}>Booking API Key (Cal.com)</label>
                                     <div className="relative">
                                         <KeyRound size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
-                                        <input type="password" value={selected.integrations?.calendar_api_key || ''} onChange={(e) => { setSelected(prev => ({ ...prev, integrations: { ...prev.integrations, calendar_api_key: e.target.value } })); }} placeholder="cal_live_xxxxxx" className={inputClass + " pl-9 font-mono"} />
+                                        <input type="password" value={selected.integrations?.calendar_api_key || ''} onChange={(e) => { setSelected(prev => ({ ...prev, integrations: { ...prev.integrations, calendar_api_key: e.target.value } })); }} placeholder="cal_live_xxxxxx" className={IC + " pl-9 font-mono"} />
                                     </div>
-                                </FormField>
-                                <FormField label="Event Type ID (Cal.com)">
+                                </div>
+                                <div>
+                                    <label className={LC}>Event Type ID (Cal.com)</label>
                                     <div className="relative">
                                         <Hash size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
-                                        <input type="text" value={selected.integrations?.event_type_id || ''} onChange={(e) => { setSelected(prev => ({ ...prev, integrations: { ...prev.integrations, event_type_id: e.target.value } })); }} placeholder="e.g. 123456" className={inputClass + " pl-9 font-mono"} />
+                                        <input type="text" value={selected.integrations?.event_type_id || ''} onChange={(e) => { setSelected(prev => ({ ...prev, integrations: { ...prev.integrations, event_type_id: e.target.value } })); }} placeholder="e.g. 123456" className={IC + " pl-9 font-mono"} />
                                     </div>
-                                </FormField>
+                                </div>
                             </div>
 
                             <div className="clinical-panel p-6 flex items-center justify-between">

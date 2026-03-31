@@ -1,7 +1,13 @@
 'use client';
-import { useState, useEffect, use } from 'react';
+import { useState, useEffect, useCallback, use } from 'react';
 import Link from 'next/link';
 import { Mic, ChevronLeft, Loader2, AlertTriangle, CheckCircle2, X, MessageSquare, Clock, CalendarDays, KeyRound, Hash, Lock, ShieldAlert } from 'lucide-react';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STYLE CONSTANTS — NO wrapper components, just class strings
+// ═══════════════════════════════════════════════════════════════════════════
+const IC = "w-full bg-obsidian border border-border-clinical rounded-lg px-3 py-2.5 text-sm text-mercury focus:border-archytech-violet/50 focus:outline-none transition-colors placeholder:text-mercury/20";
+const LC = "block text-xs text-mercury/50 mb-1.5 font-medium uppercase tracking-wider";
 
 export default function ClientDashboard({ params }) {
     const { slug } = use(params);
@@ -13,10 +19,10 @@ export default function ClientDashboard({ params }) {
     const [logs, setLogs] = useState([]);
     const [logsLoading, setLogsLoading] = useState(false);
 
-    const showToast = (message, type = 'success') => {
+    const showToast = useCallback((message, type = 'success') => {
         setToast({ message, type });
         setTimeout(() => setToast(null), 4000);
-    };
+    }, []);
 
     useEffect(() => {
         // Verify session
@@ -64,16 +70,16 @@ export default function ClientDashboard({ params }) {
         setLogsLoading(false);
     };
 
-    const handleChange = (field, value) => {
+    const handleChange = useCallback((field, value) => {
         setBusiness(prev => ({ ...prev, [field]: value }));
-    };
+    }, []);
 
-    const handleIntegrationChange = (field, value) => {
+    const handleIntegrationChange = useCallback((field, value) => {
         setBusiness(prev => ({
             ...prev,
             integrations: { ...prev.integrations, [field]: value }
         }));
-    };
+    }, []);
 
     const saveChanges = async () => {
         setSaving(true);
@@ -108,15 +114,6 @@ export default function ClientDashboard({ params }) {
         }
         setSaving(false);
     };
-
-    const inputClass = "w-full bg-obsidian border border-border-clinical rounded-lg px-3 py-2.5 text-sm text-mercury focus:border-archytech-violet/50 focus:outline-none transition-colors placeholder:text-mercury/20";
-
-    const FormField = ({ label, children }) => (
-        <div>
-            <label className="block text-xs text-mercury/50 mb-1.5 font-medium uppercase tracking-wider">{label}</label>
-            {children}
-        </div>
-    );
 
     // ── Access Denied ──────────────────────────────────────────────────────
     if (accessDenied) {
@@ -208,19 +205,21 @@ export default function ClientDashboard({ params }) {
                 {/* Editable: Description & Greeting */}
                 <div className="clinical-panel p-6 space-y-4">
                     <h3 className="text-xs uppercase tracking-widest text-mercury/50 font-semibold mb-2">Personality</h3>
-                    <FormField label="Business Description">
-                        <textarea rows={3} value={business?.description || ''} onChange={(e) => handleChange('description', e.target.value)} className={inputClass + " resize-none"} />
-                    </FormField>
-                    <FormField label="Greeting Message">
-                        <textarea rows={2} value={business?.greeting || ''} onChange={(e) => handleChange('greeting', e.target.value)} className={inputClass + " resize-none"} />
-                    </FormField>
+                    <div>
+                        <label className={LC}>Business Description</label>
+                        <textarea rows={3} value={business?.description || ''} onChange={(e) => handleChange('description', e.target.value)} className={IC + " resize-none"} />
+                    </div>
+                    <div>
+                        <label className={LC}>Greeting Message</label>
+                        <textarea rows={2} value={business?.greeting || ''} onChange={(e) => handleChange('greeting', e.target.value)} className={IC + " resize-none"} />
+                    </div>
                 </div>
 
                 {/* Editable: Knowledge Base */}
                 <div className="clinical-panel p-6">
                     <h3 className="text-xs uppercase tracking-widest text-mercury/50 font-semibold mb-4">Knowledge Base</h3>
                     <p className="text-xs text-mercury/40 mb-3">This is the brain of your agent. Paste all information: services, prices, hours, FAQs, scripts.</p>
-                    <textarea rows={14} value={business?.knowledge_base || ''} onChange={(e) => handleChange('knowledge_base', e.target.value)} className={inputClass + " resize-none font-mono text-xs"} />
+                    <textarea rows={14} value={business?.knowledge_base || ''} onChange={(e) => handleChange('knowledge_base', e.target.value)} className={IC + " resize-none font-mono text-xs"} />
                 </div>
 
                 {/* Calendar Integrations */}
@@ -229,8 +228,9 @@ export default function ClientDashboard({ params }) {
                         <CalendarDays size={14} /> Calendar Integrations
                     </h3>
                     <div className="grid grid-cols-2 gap-4">
-                        <FormField label="Timezone">
-                            <select value={business?.timezone || 'America/Merida'} onChange={(e) => handleChange('timezone', e.target.value)} className={inputClass}>
+                        <div>
+                            <label className={LC}>Timezone</label>
+                            <select value={business?.timezone || 'America/Merida'} onChange={(e) => handleChange('timezone', e.target.value)} className={IC}>
                                 <option value="America/Merida">America/Merida (CST)</option>
                                 <option value="America/Mexico_City">America/Mexico_City</option>
                                 <option value="America/New_York">America/New_York (EST)</option>
@@ -238,25 +238,28 @@ export default function ClientDashboard({ params }) {
                                 <option value="America/Chicago">America/Chicago (CST)</option>
                                 <option value="America/Bogota">America/Bogota (COT)</option>
                             </select>
-                        </FormField>
-                        <FormField label="Calendar ID / Email">
-                            <input type="text" value={business?.integrations?.calendar_id || ''} onChange={(e) => handleIntegrationChange('calendar_id', e.target.value)} placeholder="e.g. clinic@gmail.com" className={inputClass} />
-                        </FormField>
+                        </div>
+                        <div>
+                            <label className={LC}>Calendar ID / Email</label>
+                            <input type="text" value={business?.integrations?.calendar_id || ''} onChange={(e) => handleIntegrationChange('calendar_id', e.target.value)} placeholder="e.g. clinic@gmail.com" className={IC} />
+                        </div>
                     </div>
-                    <FormField label="Booking API Key (Cal.com)">
+                    <div>
+                        <label className={LC}>Booking API Key (Cal.com)</label>
                         <div className="relative">
                             <KeyRound size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
-                            <input type="password" value={business?.integrations?.calendar_api_key || ''} onChange={(e) => handleIntegrationChange('calendar_api_key', e.target.value)} placeholder="cal_live_xxxxxx" className={inputClass + " pl-9 font-mono"} />
+                            <input type="password" value={business?.integrations?.calendar_api_key || ''} onChange={(e) => handleIntegrationChange('calendar_api_key', e.target.value)} placeholder="cal_live_xxxxxx" className={IC + " pl-9 font-mono"} />
                         </div>
                         <p className="text-[10px] text-mercury/30 mt-1">Stored securely. Allows the AI agent to read/write to your calendar.</p>
-                    </FormField>
-                    <FormField label="Event Type ID (Cal.com)">
+                    </div>
+                    <div>
+                        <label className={LC}>Event Type ID (Cal.com)</label>
                         <div className="relative">
                             <Hash size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
-                            <input type="text" value={business?.integrations?.event_type_id || ''} onChange={(e) => handleIntegrationChange('event_type_id', e.target.value)} placeholder="e.g. 123456" className={inputClass + " pl-9 font-mono"} />
+                            <input type="text" value={business?.integrations?.event_type_id || ''} onChange={(e) => handleIntegrationChange('event_type_id', e.target.value)} placeholder="e.g. 123456" className={IC + " pl-9 font-mono"} />
                         </div>
                         <p className="text-[10px] text-mercury/30 mt-1">Required for bookings. Find it in Cal.com → Event Types → ID.</p>
-                    </FormField>
+                    </div>
                 </div>
 
                 {/* Save Button */}
