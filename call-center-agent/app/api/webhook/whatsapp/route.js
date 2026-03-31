@@ -103,26 +103,29 @@ async function uploadToFirebaseAndSend(audioBuffer, phoneNumberId, patientPhone)
 
         console.log("🛠️ Transcoding audio from WAV to MP3 in memory...");
 
-        // 2. Obligamos al servidor a ESPERAR a que termine la conversión
         const mp3Buffer = await new Promise((resolve, reject) => {
-            const inputStream = Readable.from(audioBuffer); // wavBuffer es lo que te dio Gemini
+            const inputStream = Readable.from(audioBuffer);
             const outputStream = new PassThrough();
             const chunks = [];
 
-            // Recolectamos los pedacitos de audio conforme salen de FFmpeg
             outputStream.on('data', (chunk) => chunks.push(chunk));
-            
-            // Cuando termine, unimos los pedacitos y resolvemos la Promesa
-            outputStream.on('end', () => resolve(Buffer.concat(chunks)));
-            outputStream.on('error', (err) => reject(err));
 
             ffmpeg(inputStream)
+                // Le decimos explícitamente qué entra para que no adivine
+                .inputFormat('wav') 
                 .format('mp3')
+                .on('end', () => {
+                    // MAGIA: Ahora escuchamos el 'end' de FFmpeg, no del tubo.
+                    // Si llega aquí, sabemos 100% que la conversión fue exitosa.
+                    console.log("✅ FFmpeg Process Finished!");
+                    resolve(Buffer.concat(chunks));
+                })
                 .on('error', (err) => {
-                    console.error("❌ FFmpeg Error:", err);
+                    // Si FFmpeg falla, la Promesa muere aquí y salta a tu bloque catch
+                    console.error("❌ FFmpeg Process Error:", err);
                     reject(err);
                 })
-                .pipe(outputStream);
+                .pipe(outputStream, { end: true });
         });
 
         console.log("✅ Transcoding complete. MP3 Buffer size:", mp3Buffer.length, "bytes");
