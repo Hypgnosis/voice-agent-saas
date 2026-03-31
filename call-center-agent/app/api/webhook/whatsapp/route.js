@@ -102,31 +102,38 @@ async function uploadToFirebaseAndSend(audioBuffer, phoneNumberId, patientPhone)
         if (!bucketName) throw new Error("FIREBASE_STORAGE_BUCKET not set");
 
         console.log("🛠️ Transcoding audio from WAV to MP3 in memory...");
-        const transcodedBuffer = await new Promise((resolve, reject) => {
-            const inputStream = new Readable();
-            inputStream.push(audioBuffer);
-            inputStream.push(null);
 
+        // 2. Obligamos al servidor a ESPERAR a que termine la conversión
+        const mp3Buffer = await new Promise((resolve, reject) => {
+            const inputStream = Readable.from(audioBuffer); // wavBuffer es lo que te dio Gemini
+            const outputStream = new PassThrough();
             const chunks = [];
-            const pt = new PassThrough();
 
-            pt.on('data', chunk => chunks.push(chunk));
-            pt.on('end', () => resolve(Buffer.concat(chunks)));
-            pt.on('error', err => reject(err));
+            // Recolectamos los pedacitos de audio conforme salen de FFmpeg
+            outputStream.on('data', (chunk) => chunks.push(chunk));
+            
+            // Cuando termine, unimos los pedacitos y resolvemos la Promesa
+            outputStream.on('end', () => resolve(Buffer.concat(chunks)));
+            outputStream.on('error', (err) => reject(err));
 
             ffmpeg(inputStream)
-                .toFormat('mp3')
-                .on('error', err => reject(new Error('FFmpeg error: ' + err.message)))
-                .pipe(pt, { end: true });
+                .format('mp3')
+                .on('error', (err) => {
+                    console.error("❌ FFmpeg Error:", err);
+                    reject(err);
+                })
+                .pipe(outputStream);
         });
-        console.log("✅ Transcoding complete.");
 
+        console.log("✅ Transcoding complete. MP3 Buffer size:", mp3Buffer.length, "bytes");
+
+        // 3. AHORA subes el mp3Buffer a Firebase, asegurándote de usar su tamaño real
         const bucket = adminStorage.bucket(bucketName);
         const filename = `voice-replies/${uuidv4()}.mp3`;
         const file = bucket.file(filename);
 
         // Upload to Firebase Storage
-        await file.save(transcodedBuffer, {
+        await file.save(mp3Buffer, {
             metadata: { contentType: 'audio/mpeg' },
             public: false
         });
