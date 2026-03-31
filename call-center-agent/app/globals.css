@@ -34,3 +34,29 @@ button, a, .transition-panel {
   border: 1px solid var(--color-border-clinical);
   background: rgba(249, 248, 246, 0.02); /* Bone with heavy transparency */
 }
+
+/* Hero logo float animation */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-12px); }
+}
+
+/* Back button hover glow */
+.back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: rgba(229, 231, 235, 0.6);
+  border: 1px solid transparent;
+  background: transparent;
+  text-decoration: none;
+}
+.back-btn:hover {
+  color: var(--color-archytech-violet);
+  border-color: rgba(139, 92, 246, 0.2);
+  background: rgba(139, 92, 246, 0.05);
+}

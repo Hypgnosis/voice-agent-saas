@@ -1,7 +1,8 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { Mic, ChevronLeft, Users, Plus, Loader2, ExternalLink, AlertTriangle, CheckCircle2, X, MessageSquare, Clock, Phone, CalendarDays, KeyRound, Hash, Shield, Lock } from 'lucide-react';
+import Image from 'next/image';
+import { Mic, ChevronLeft, Users, Plus, Loader2, ExternalLink, AlertTriangle, CheckCircle2, X, MessageSquare, Clock, Phone, CalendarDays, KeyRound, Hash, Shield, Lock, ArrowLeft } from 'lucide-react';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // GOD MODE GATE — Master PIN protects the full dashboard
@@ -35,13 +36,25 @@ function GodModeGate({ onAuthenticated }) {
     };
 
     return (
-        <main className="min-h-screen bg-obsidian text-mercury font-sans flex items-center justify-center">
+        <main className="min-h-screen bg-obsidian text-mercury font-sans flex items-center justify-center relative">
+            {/* Back Button */}
+            <div className="fixed top-6 left-6 z-20">
+                <Link href="/" className="back-btn">
+                    <ArrowLeft size={16} />
+                    Back to Home
+                </Link>
+            </div>
+
             <div className="w-full max-w-md mx-auto">
                 <div className="clinical-panel p-8 space-y-6">
                     <div className="flex flex-col items-center gap-3">
-                        <div className="p-4 bg-red-500/10 text-red-400 rounded-2xl border border-red-500/20">
-                            <Shield size={32} strokeWidth={1.5} />
-                        </div>
+                        <Image
+                            src="/sovereign-agent-logo.png"
+                            alt="Sovereign Agent"
+                            width={64}
+                            height={64}
+                            className="drop-shadow-[0_0_20px_rgba(139,92,246,0.4)]"
+                        />
                         <h1 className="text-xl font-bold tracking-tight">Sovereign Command</h1>
                         <p className="text-xs text-mercury/40 text-center uppercase tracking-[0.2em]">God Mode — Administrator Access</p>
                     </div>
@@ -286,13 +299,17 @@ function Dashboard() {
             {/* Header */}
             <header className="border-b border-border-clinical px-6 py-4 flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                    <Link href="/" className="text-mercury/60 hover:text-mercury transition-colors">
-                        <ChevronLeft size={20} />
+                    <Link href="/" className="back-btn !p-2">
+                        <ArrowLeft size={18} />
                     </Link>
                     <div className="flex items-center gap-3">
-                        <div className="p-2 bg-red-500/10 text-red-400 rounded-lg border border-red-500/20">
-                            <Shield size={18} strokeWidth={2.5} />
-                        </div>
+                        <Image
+                            src="/sovereign-agent-logo.png"
+                            alt="Sovereign Agent"
+                            width={36}
+                            height={36}
+                            className="drop-shadow-[0_0_10px_rgba(139,92,246,0.3)]"
+                        />
                         <div>
                             <h1 className="text-base font-bold tracking-tight">Sovereign Command — God Mode</h1>
                             <span className="text-[10px] text-red-400/70 uppercase tracking-[0.2em]">Full Administrator Access</span>

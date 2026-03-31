@@ -1,6 +1,8 @@
 'use client';
 import { useState } from 'react';
-import { Mic, Loader2, Lock, ArrowRight, AlertTriangle, Shield } from 'lucide-react';
+import Link from 'next/link';
+import Image from 'next/image';
+import { Loader2, Lock, ArrowRight, ArrowLeft, AlertTriangle, Shield } from 'lucide-react';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CLIENT PORTAL GATEWAY — Login with slug + client_pin
@@ -42,19 +44,31 @@ export default function PortalPage() {
     };
 
     return (
-        <main className="min-h-screen bg-obsidian text-mercury font-sans flex items-center justify-center">
+        <main className="min-h-screen bg-obsidian text-mercury font-sans flex flex-col items-center justify-center relative">
             {/* Background shimmer */}
             <div className="fixed inset-0 overflow-hidden pointer-events-none">
                 <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-archytech-violet/5 rounded-full blur-[120px]" />
                 <div className="absolute bottom-0 right-0 w-[400px] h-[400px] bg-archytech-violet/3 rounded-full blur-[100px]" />
             </div>
 
+            {/* Back Button */}
+            <div className="fixed top-6 left-6 z-20">
+                <Link href="/" className="back-btn">
+                    <ArrowLeft size={16} />
+                    Back to Home
+                </Link>
+            </div>
+
             <div className="relative w-full max-w-md mx-4">
                 {/* Logo & Branding */}
                 <div className="text-center mb-8">
-                    <div className="inline-flex items-center justify-center p-4 bg-archytech-violet/10 rounded-2xl border border-archytech-violet/20 mb-6">
-                        <Mic size={32} strokeWidth={1.5} className="text-archytech-violet" />
-                    </div>
+                    <Image
+                        src="/sovereign-agent-logo.png"
+                        alt="Sovereign Agent"
+                        width={72}
+                        height={72}
+                        className="mx-auto mb-6 drop-shadow-[0_0_20px_rgba(139,92,246,0.4)]"
+                    />
                     <h1 className="text-2xl font-bold tracking-tight mb-2">Client Portal</h1>
                     <p className="text-sm text-mercury/40">Access your Sovereign Agent dashboard</p>
                 </div>
@@ -110,7 +124,10 @@ export default function PortalPage() {
                     </form>
                 </div>
 
-                <p className="text-center text-[10px] text-mercury/20 mt-8 uppercase tracking-widest">Sovereign Agent Infrastructure™</p>
+                <div className="flex items-center justify-center gap-2 mt-8">
+                    <Image src="/sovereign-agent-logo.png" alt="" width={14} height={14} className="opacity-30" />
+                    <p className="text-[10px] text-mercury/20 uppercase tracking-widest">Sovereign Agent Infrastructure™</p>
+                </div>
             </div>
         </main>
     );

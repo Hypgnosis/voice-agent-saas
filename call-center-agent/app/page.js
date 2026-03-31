@@ -1,7 +1,8 @@
 'use client';
 import { useState } from 'react';
 import Link from "next/link";
-import { Mic, Terminal, Globe, ChevronRight, X, MessageCircle, Shield, Users, Zap, Calendar, Bot, Phone } from "lucide-react";
+import Image from "next/image";
+import { Terminal, Globe, ChevronRight, X, MessageCircle, Shield, Users, Zap, Calendar, Bot, Phone } from "lucide-react";
 
 export default function Home() {
   const [showAgent, setShowAgent] = useState(false);
@@ -14,15 +15,19 @@ export default function Home() {
       
       {/* Navbar */}
       <nav className="flex justify-between items-center z-10 w-full max-w-7xl mx-auto p-6 md:p-10">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-archytech-violet/10 text-archytech-violet rounded-xl border border-archytech-violet/20">
-            <Bot size={24} strokeWidth={2.5} />
-          </div>
+        <Link href="/" className="flex items-center gap-3 group">
+          <Image
+            src="/sovereign-agent-logo.png"
+            alt="Sovereign Agent"
+            width={44}
+            height={44}
+            className="rounded-xl group-hover:scale-105 transition-transform drop-shadow-[0_0_12px_rgba(139,92,246,0.4)]"
+          />
           <div>
             <h1 className="text-lg font-bold tracking-tight">Sovereign Agent</h1>
             <span className="text-[10px] text-mercury/60 uppercase tracking-[0.2em] font-medium block mt-0.5">Multi-Tenant Voice AI Infrastructure</span>
           </div>
-        </div>
+        </Link>
         <div className="flex items-center gap-4">
           <button
             onClick={() => setShowAgent(true)}
@@ -41,6 +46,18 @@ export default function Home() {
 
       {/* Hero Section */}
       <section className="flex-1 flex flex-col items-center justify-center text-center p-6 mt-[-40px] z-10">
+        {/* Hero Logo */}
+        <div className="mb-8">
+          <Image
+            src="/sovereign-agent-logo.png"
+            alt="Sovereign Agent Crown"
+            width={140}
+            height={140}
+            className="drop-shadow-[0_0_40px_rgba(139,92,246,0.5)] animate-[float_6s_ease-in-out_infinite]"
+            priority
+          />
+        </div>
+
         <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full clinical-panel mb-8">
           <span className="w-2 h-2 rounded-full bg-archytech-violet animate-pulse" />
           <span className="text-xs tracking-widest uppercase font-semibold text-archytech-violet">Multi-Tenant Autonomous Voice Agent Platform</span>
@@ -127,7 +144,8 @@ export default function Home() {
         </div>
 
         {/* Footer */}
-        <div className="text-xs text-mercury/30 pb-8">
+        <div className="flex items-center gap-3 text-xs text-mercury/30 pb-8">
+          <Image src="/sovereign-agent-logo.png" alt="" width={20} height={20} className="opacity-40" />
           Sovereign Agent Infrastructure — Built by <a href="https://high-archy.tech" target="_blank" rel="noopener" className="text-archytech-violet/60 hover:text-archytech-violet transition-colors">High ArchyTech</a>
         </div>
       </section>
@@ -138,7 +156,7 @@ export default function Home() {
           <div className="relative w-full max-w-lg h-[600px] bg-obsidian rounded-2xl border border-border-clinical shadow-2xl overflow-hidden flex flex-col">
             <div className="flex items-center justify-between px-5 py-3 border-b border-border-clinical">
               <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                <Image src="/sovereign-agent-logo.png" alt="" width={20} height={20} className="drop-shadow-[0_0_6px_rgba(139,92,246,0.4)]" />
                 <span className="text-xs font-semibold text-mercury/70 uppercase tracking-wider">Sovereign Agent — Live</span>
               </div>
               <button onClick={() => setShowAgent(false)} className="text-mercury/50 hover:text-mercury transition-colors">

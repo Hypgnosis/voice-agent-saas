@@ -1,7 +1,8 @@
 'use client';
 import { useState, useEffect, useCallback, use } from 'react';
 import Link from 'next/link';
-import { Mic, ChevronLeft, Loader2, AlertTriangle, CheckCircle2, X, MessageSquare, Clock, CalendarDays, KeyRound, Hash, Lock, ShieldAlert } from 'lucide-react';
+import Image from 'next/image';
+import { Mic, ChevronLeft, Loader2, AlertTriangle, CheckCircle2, X, MessageSquare, Clock, CalendarDays, KeyRound, Hash, Lock, ShieldAlert, ArrowLeft } from 'lucide-react';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // STYLE CONSTANTS — NO wrapper components, just class strings
@@ -161,13 +162,17 @@ export default function ClientDashboard({ params }) {
             {/* Header */}
             <header className="border-b border-border-clinical px-6 py-4 flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                    <Link href="/portal" className="text-mercury/60 hover:text-mercury transition-colors">
-                        <ChevronLeft size={20} />
+                    <Link href="/portal" className="back-btn !p-2">
+                        <ArrowLeft size={18} />
                     </Link>
                     <div className="flex items-center gap-3">
-                        <div className="p-2 bg-archytech-violet/10 text-archytech-violet rounded-lg border border-archytech-violet/20">
-                            <Mic size={18} strokeWidth={2.5} />
-                        </div>
+                        <Image
+                            src="/sovereign-agent-logo.png"
+                            alt="Sovereign Agent"
+                            width={32}
+                            height={32}
+                            className="drop-shadow-[0_0_10px_rgba(139,92,246,0.3)]"
+                        />
                         <div>
                             <h1 className="text-base font-bold tracking-tight">{business?.name || 'Agent Dashboard'}</h1>
                             <span className="text-[10px] text-mercury/50 uppercase tracking-[0.2em]">Client Configuration Panel</span>
