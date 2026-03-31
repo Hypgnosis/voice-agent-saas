@@ -371,17 +371,11 @@ async function handleInternalAgent(business, history, isAudioIncoming) {
 
     console.log('🩺 Internal Agent activated — Function Calling mode');
     
+    // Hop 1: THE BRAIN (Logic and Function Calling)
     const config = {
         systemInstruction: systemPrompt,
         tools: [{ functionDeclarations: toolDeclarations }],
     };
-    
-    if (isAudioIncoming) {
-        config.responseModalities = ["AUDIO"];
-        config.speechConfig = {
-            voiceConfig: { prebuiltVoiceConfig: { voiceName: "Puck" } }
-        };
-    }
 
     // ── FIRST TRIP: Send message with tools available ───────────────────
     const firstResponse = await ai.models.generateContent({
@@ -393,67 +387,72 @@ async function handleInternalAgent(business, history, isAudioIncoming) {
     // ── CHECK: Did Gemini request any tool calls? ───────────────────────
     const functionCalls = firstResponse.functionCalls;
 
+    let finalBrainText = "";
+
     if (!functionCalls || functionCalls.length === 0) {
         // No tools needed — Gemini answered directly
-        const audioPart = firstResponse.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-        return {
-            text: cleanResponse(firstResponse.text || ''),
-            audioBuffer: audioPart?.inlineData?.data ? Buffer.from(audioPart.inlineData.data, 'base64') : null
-        };
+        finalBrainText = cleanResponse(firstResponse.text || '');
+    } else {
+        // ── EXECUTE ALL REQUESTED TOOLS ─────────────────────────────────────
+        console.log(`🔧 Gemini requested ${functionCalls.length} tool call(s)`);
+
+        const modelFunctionCallParts = functionCalls.map(fc => ({
+            functionCall: { name: fc.name, args: fc.args },
+        }));
+
+        const functionResponseParts = [];
+        for (const fc of functionCalls) {
+            try {
+                console.log(`  → Executing: ${fc.name}(${JSON.stringify(fc.args)})`);
+                const result = await dispatchToolCall(fc.name, fc.args || {}, business);
+                functionResponseParts.push({ functionResponse: { name: fc.name, response: result } });
+            } catch (error) {
+                console.error(`  ✗ Tool "${fc.name}" failed:`, error);
+                functionResponseParts.push({
+                    functionResponse: { name: fc.name, response: { status: 'error', message: 'Fallo de conexión.', details: error.message } }
+                });
+            }
+        }
+
+        // ── SECOND TRIP: Feed tool results back to Gemini ───────────────────
+        const secondTripContents = [
+            ...history,
+            { role: 'model', parts: modelFunctionCallParts },
+            { role: 'user', parts: functionResponseParts },
+        ];
+
+        const secondResponse = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: secondTripContents,
+            config: config,
+        });
+
+        finalBrainText = cleanResponse(secondResponse.text || '');
     }
 
-    // ── EXECUTE ALL REQUESTED TOOLS ─────────────────────────────────────
-    console.log(`🔧 Gemini requested ${functionCalls.length} tool call(s)`);
-
-    // Build the function call parts (what Gemini asked for)
-    const modelFunctionCallParts = functionCalls.map(fc => ({
-        functionCall: { name: fc.name, args: fc.args },
-    }));
-
-    // Execute each tool and collect the results
-    // ⚡ Pass 'business' so the dispatcher can extract Tenant Vault credentials
-    const functionResponseParts = [];
-    for (const fc of functionCalls) {
+    // Hop 2: THE VOICE (TTS)
+    let audioBuffer = null;
+    if (isAudioIncoming && finalBrainText) {
+        console.log("🗣️ Synthesizing native TTS audio from Internal Agent...");
         try {
-            console.log(`  → Executing: ${fc.name}(${JSON.stringify(fc.args)})`);
-            const result = await dispatchToolCall(fc.name, fc.args || {}, business);
-            functionResponseParts.push({
-                functionResponse: { name: fc.name, response: result },
+            const audioResponse = await ai.models.generateContent({
+                model: 'gemini-2.5-flash-preview-tts',
+                contents: finalBrainText,
+                config: {
+                    responseModalities: ["AUDIO"],
+                    speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Puck" } } }
+                }
             });
-        } catch (error) {
-            console.error(`  ✗ Tool "${fc.name}" failed:`, error);
-            functionResponseParts.push({
-                functionResponse: {
-                    name: fc.name,
-                    response: {
-                        status: 'error',
-                        message: 'Fallo de conexión con el servicio.',
-                        details: error.message,
-                    },
-                },
-            });
+            const geminiAudioBase64 = audioResponse.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
+            if (geminiAudioBase64) {
+                audioBuffer = Buffer.from(geminiAudioBase64, 'base64');
+            }
+        } catch (e) {
+            console.error("❌ Native TTS generation failed:", e);
         }
     }
 
-    // ── SECOND TRIP: Feed tool results back to Gemini ───────────────────
-    const secondTripContents = [
-        ...history,
-        { role: 'model', parts: modelFunctionCallParts },
-        { role: 'user', parts: functionResponseParts },
-    ];
-
-    const secondResponse = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: secondTripContents,
-        config: config,
-    });
-
-    const finalAudioPart = secondResponse.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-
-    return {
-        text: cleanResponse(secondResponse.text || ''),
-        audioBuffer: finalAudioPart?.inlineData?.data ? Buffer.from(finalAudioPart.inlineData.data, 'base64') : null
-    };
+    return { text: finalBrainText, audioBuffer };
 }
 
 
@@ -475,45 +474,57 @@ RULES:
 - Do NOT use markdown.
 - Match the caller's language.`;
 
+    // Hop 1: THE BRAIN
     const config = { systemInstruction: systemPrompt };
-    
-    if (isAudioIncoming) {
-        config.responseModalities = ["AUDIO"];
-        config.speechConfig = {
-            voiceConfig: { prebuiltVoiceConfig: { voiceName: "Puck" } }
-        };
-    }
 
-    // Call Gemini (standard — no tools)
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: history,
         config: config
     });
 
-    let responseText = response.text || '';
+    let finalBrainText = response.text || '';
     let bookData = null;
 
     // Check for Booking Intent
-    const bookMatch = responseText.match(/\[BOOK\]\s*(\{.*?\})/s);
+    const bookMatch = finalBrainText.match(/\[BOOK\]\s*(\{.*?\})/s);
     if (bookMatch) {
         try {
             bookData = JSON.parse(bookMatch[1]);
             console.log(`🚀 Booking Intent detected for ${patientPhone}:`, bookData);
-            responseText = responseText.replace(/\[BOOK\]\s*\{.*?\}/gs, '').trim();
+            finalBrainText = finalBrainText.replace(/\[BOOK\]\s*\{.*?\}/gs, '').trim();
             
             triggerOpenClaw(patientPhone, bookData, history).catch(console.error);
         } catch (e) {
             console.error("Failed to parse BOOK tag:", e);
         }
     }
+    
+    finalBrainText = cleanResponse(finalBrainText);
 
-    const audioPart = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+    // Hop 2: THE VOICE (TTS)
+    let audioBuffer = null;
+    if (isAudioIncoming && finalBrainText) {
+        console.log("🗣️ Synthesizing native TTS audio from Standard Agent...");
+        try {
+            const audioResponse = await ai.models.generateContent({
+                model: 'gemini-2.5-flash-preview-tts',
+                contents: finalBrainText,
+                config: {
+                    responseModalities: ["AUDIO"],
+                    speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Puck" } } }
+                }
+            });
+            const geminiAudioBase64 = audioResponse.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
+            if (geminiAudioBase64) {
+                audioBuffer = Buffer.from(geminiAudioBase64, 'base64');
+            }
+        } catch (e) {
+            console.error("❌ Native TTS generation failed:", e);
+        }
+    }
 
-    return {
-        text: cleanResponse(responseText),
-        audioBuffer: audioPart?.inlineData?.data ? Buffer.from(audioPart.inlineData.data, 'base64') : null
-    };
+    return { text: finalBrainText, audioBuffer };
 }
 
 
