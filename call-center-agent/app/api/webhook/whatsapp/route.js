@@ -385,7 +385,7 @@ async function handleInternalAgent(business, history, isAudioIncoming) {
 
     // ── FIRST TRIP: Send message with tools available ───────────────────
     const firstResponse = await ai.models.generateContent({
-        model: 'gemini-2.0-flash',
+        model: 'gemini-2.5-flash',
         contents: history,
         config: config,
     });
@@ -443,7 +443,7 @@ async function handleInternalAgent(business, history, isAudioIncoming) {
     ];
 
     const secondResponse = await ai.models.generateContent({
-        model: 'gemini-2.0-flash',
+        model: 'gemini-2.5-flash',
         contents: secondTripContents,
         config: config,
     });
@@ -486,7 +486,7 @@ RULES:
 
     // Call Gemini (standard — no tools)
     const response = await ai.models.generateContent({
-        model: 'gemini-2.0-flash',
+        model: 'gemini-2.5-flash',
         contents: history,
         config: config
     });
