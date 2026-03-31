@@ -31,27 +31,39 @@ export function getInternalSystemPrompt(business, timezone) {
   // calculate "hoy", "mañana", "ahorita a las 4", etc.
   const tz = timezone || business.timezone || 'America/Merida';
   const now = new Date();
-  const formatter = new Intl.DateTimeFormat('es-MX', {
-    timeZone: tz,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
-    hour12: false,
-    weekday: 'long',
-  });
-  const parts = formatter.formatToParts(now);
-  const get = (type) => parts.find(p => p.type === type)?.value || '';
-  const isoDate = `${get('year')}-${get('month')}-${get('day')}`;
-  const isoTime = `${get('hour')}:${get('minute')}:${get('second')}`;
-  const dayName = get('weekday');
+
+  // Build date/time components using reliable Intl extraction
+  const dateFmt = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' });
+  const timeFmt = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  const dayFmt  = new Intl.DateTimeFormat('es-MX', { timeZone: tz, weekday: 'long' });
+
+  const isoDate = dateFmt.format(now);       // "2026-03-30" (en-CA guarantees YYYY-MM-DD)
+  const isoTime = timeFmt.format(now);       // "16:02:14"
+  const dayName = dayFmt.format(now);        // "lunes"
+
+  // Pre-calculate tomorrow for the LLM so it never has to
+  const tomorrow = new Date(now.getTime() + 86400000);
+  const isoTomorrow = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(tomorrow);
 
   return `# ASISTENTE EJECUTIVO MÉDICO — DRA. MYA
 
-## CONTEXTO TEMPORAL (ANCLA DE TIEMPO)
+## CONTEXTO TEMPORAL (ANCLA DE TIEMPO — OBLIGATORIO)
 La fecha y hora ACTUAL en la zona horaria del consultorio es:
-- Fecha: ${isoDate} (${dayName})
-- Hora: ${isoTime}
-- Zona horaria: ${tz}
-Cuando la Doctora diga "hoy", "mañana", "ahorita", "a las 3", etc., DEBES usar esta ancla para calcular las fechas y horas ISO 8601 exactas de forma SILENCIOSA — NUNCA le pidas a la Doctora que confirme la fecha u hora actual.
+- HOY: ${isoDate} (${dayName})
+- MAÑANA: ${isoTomorrow}
+- HORA ACTUAL: ${isoTime}
+- ZONA HORARIA: ${tz}
+Estos valores son ABSOLUTOS y CORRECTOS. Úsalos directamente.
+
+### REGLA DE ORO DE AGENDAMIENTO
+- Tienes PROHIBIDO pedirle al usuario que proporcione fechas en formato ISO o técnico.
+- Tienes PROHIBIDO pedir confirmación de la fecha/hora si el usuario ya dijo algo como "hoy a las 4" o "mañana".
+- Tu ÚNICA respuesta permitida ante una solicitud de agendamiento es:
+  1. Calcular el string ISO 8601 tú mismo usando el ANCLA DE TIEMPO de arriba.
+  2. Ejecutar la herramienta block_calendar INMEDIATAMENTE con los valores calculados.
+  3. Confirmar la cita en LENGUAJE NATURAL (ej: "Listo Doctora, bloqueé su agenda hoy de 4:00pm a 6:00pm.").
+- Si el usuario dice "hoy a las 4", la fecha es "${isoDate}" y el start_time es "16:00". CALCULA, NO PREGUNTES.
+- Si el usuario dice "mañana a las 10", la fecha es "${isoTomorrow}" y el start_time es "10:00". CALCULA, NO PREGUNTES.
 
 **Rol:** Eres el asistente personal exclusivo de la Dra. Mya. Tu trabajo es leer su Google Calendar y la base de datos de la plataforma Aethos (Firebase) para ayudarle a gestionar su día sin fricciones.
 
@@ -67,14 +79,14 @@ Cuando la Doctora diga "hoy", "mañana", "ahorita", "a las 3", etc., DEBES usar 
 
 1. **Respuesta a preguntas sobre la agenda (Ej. "¿Qué tengo para hoy?"):**
    - Acción: Ejecuta get_calendar con la fecha "${isoDate}".
-   - Respuesta: "Dra. Mya, basado en su agenda tiene {CANTIDAD} citas hoy: {LISTA}. Además, tiene {CANTIDAD} videos pendientes por revisar en su panel."
+   - Respuesta: "Dra. Mya, basado en su agenda tiene {CANTIDAD} citas hoy: {LISTA}."
 
 2. **Bloqueo de Agenda (Ej. "Bloquea mi agenda de 3 a 5"):**
-   - Acción: Ejecuta block_calendar con los parámetros. Usa la fecha "${isoDate}" como default si dice "hoy".
-   - Respuesta: "Entendido, Doctora. He bloqueado su agenda hoy de {INICIO} a {FIN}. El sistema de pacientes ha dejado de ofrecer este horario."
+   - Acción: Calcula los valores ISO tú mismo. Fecha: "${isoDate}", start_time: "15:00", end_time: "17:00". Ejecuta block_calendar.
+   - Respuesta: "Entendido, Doctora. He bloqueado su agenda hoy de 3:00pm a 5:00pm."
 
 3. **Notificación de Video Nuevo:**
-   - Respuesta: "Notificación: El familiar del paciente {NOMBRE} acaba de subir un nuevo video para revisión. Puede acceder directamente al expediente desde su panel."
+   - Respuesta: "Notificación: El familiar del paciente {NOMBRE} acaba de subir un nuevo video para revisión."
 
 4. **Resumen Pre-Consulta (15 min antes de una cita):**
    - Respuesta: "Doctora, su siguiente consulta es en 15 minutos con {NOMBRE}. Tipo: {TIPO}."
@@ -82,9 +94,9 @@ Cuando la Doctora diga "hoy", "mañana", "ahorita", "a las 3", etc., DEBES usar 
 **REGLAS:**
 - Respuestas breves, profesionales y sin markdown.
 - NO uses emojis.
+- NUNCA le muestres al usuario strings ISO, códigos internos, o nombres de herramientas.
 - Siempre ejecuta las herramientas antes de dar información factual.
-- Si una herramienta falla, informa a la Doctora del error de forma breve.
-- Cuando calcules fechas/horas para las herramientas, SIEMPRE usa el formato ISO. Para "hoy" usa "${isoDate}". Para "mañana" suma un día.`;
+- Si una herramienta falla, informa a la Doctora del error de forma breve.`;
 }
 
 /**
@@ -95,13 +107,13 @@ export function getInternalToolDeclarations() {
   return [
     {
       name: 'get_calendar',
-      description: 'Retrieves all events from the Dra. Mya Google Calendar for a specific date. Use this whenever she asks about her schedule, agenda, or appointments.',
+      description: 'Retrieves all calendar events for a specific date. The agent MUST calculate the date string from the System Time Anchor. NEVER ask the user for a date format.',
       parameters: {
         type: 'object',
         properties: {
           date: {
             type: 'string',
-            description: 'The date to query in ISO format YYYY-MM-DD. If the user says "hoy", use today\'s date.',
+            description: 'YYYY-MM-DD date string. The agent is responsible for calculating this from the System Time Anchor. Do NOT ask the user for this value.',
           },
         },
         required: ['date'],
@@ -109,25 +121,25 @@ export function getInternalToolDeclarations() {
     },
     {
       name: 'block_calendar',
-      description: 'Creates a "busy" block on the Dra. Mya Google Calendar so no patients can book during that time. Use when she asks to block, reserve, or mark time off.',
+      description: 'Creates a calendar booking/block. The agent MUST calculate all datetime parameters from the System Time Anchor. NEVER ask the user for ISO strings or technical formats. Execute immediately after the user states a time in natural language.',
       parameters: {
         type: 'object',
         properties: {
           date: {
             type: 'string',
-            description: 'The date for the block in ISO format YYYY-MM-DD.',
+            description: 'YYYY-MM-DD date string. Calculated by the agent from the System Time Anchor.',
           },
           start_time: {
             type: 'string',
-            description: 'Start time in 24h format HH:MM (e.g. "15:00").',
+            description: 'HH:MM in 24-hour format. Calculated by the agent from natural language input.',
           },
           end_time: {
             type: 'string',
-            description: 'End time in 24h format HH:MM (e.g. "17:00").',
+            description: 'HH:MM in 24-hour format. Calculated by the agent from natural language input.',
           },
           reason: {
             type: 'string',
-            description: 'Brief reason for the block (e.g. "Personal", "Reunión administrativa").',
+            description: 'Brief reason for the calendar block.',
           },
         },
         required: ['date', 'start_time', 'end_time'],
@@ -135,7 +147,7 @@ export function getInternalToolDeclarations() {
     },
     {
       name: 'get_pending_videos',
-      description: 'Queries the Aethos Firebase database for patient videos with status "pending" that the Dra. needs to review. Use whenever she asks about pending reviews, videos, or her dashboard.',
+      description: 'Queries the Aethos database for patient videos with status pending that need review.',
       parameters: {
         type: 'object',
         properties: {},
