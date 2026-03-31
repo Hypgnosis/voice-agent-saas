@@ -280,12 +280,32 @@ export async function POST(request) {
             if (log.caller_text) history.unshift({ role: 'user', parts: [{ text: log.caller_text }] });
         });
 
-        // Append the current message
-        if (isAudioIncoming && base64Audio) {
-            history.push({ role: 'user', parts: [{ inlineData: { mimeType: mimeType || "audio/ogg", data: base64Audio } }] });
-        } else {
-            history.push({ role: 'user', parts: [{ text: userText }] });
+        // Construir el payload dinámico para Gemini
+        const userParts = [];
+        
+        // Si hay texto, lo agregamos
+        if (userText && userText.trim() !== "") {
+            userParts.push({ text: userText });
         }
+        
+        // Si hay audio en Base64, lo agregamos
+        if (base64Audio) {
+            userParts.push({ 
+                inlineData: { 
+                    mimeType: mimeType || "audio/ogg", // Fallback por si acaso
+                    data: base64Audio 
+                } 
+            });
+        }
+
+        // Evitar que el agente procese un mensaje completamente vacío
+        if (userParts.length === 0) {
+             console.log("Mensaje vacío, ignorando.");
+             return NextResponse.json({ status: "empty_payload" }, { status: 200 });
+        }
+
+        // Agregar al historial
+        history.push({ role: 'user', parts: userParts });
 
         // ═══════════════════════════════════════════════════════════════════
         // ROUTE: Internal Agent (Dra. Mya) vs. Standard Receptionist
