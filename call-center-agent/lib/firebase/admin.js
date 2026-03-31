@@ -20,3 +20,4 @@ if (!admin.apps.length && process.env.FIREBASE_PROJECT_ID) {
 // Ensure the build doesn't crash if envs are missing during static generation
 export const adminDb = process.env.FIREBASE_PROJECT_ID ? admin.firestore() : null;
 export const adminAuth = process.env.FIREBASE_PROJECT_ID ? admin.auth() : null;
+export const adminStorage = process.env.FIREBASE_PROJECT_ID ? admin.storage() : null;

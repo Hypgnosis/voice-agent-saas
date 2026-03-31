@@ -1,9 +1,14 @@
 import { NextResponse } from 'next/server';
-import { adminDb } from '@/lib/firebase/admin';
+import { adminDb, adminStorage } from '@/lib/firebase/admin';
 import { GoogleGenAI } from '@google/genai';
 import { v4 as uuidv4 } from 'uuid';
 import { isInternalAgent, getInternalSystemPrompt, getInternalToolDeclarations } from '@/lib/tools/internalAgentTools';
 import { dispatchToolCall } from '@/lib/tools/calendarFunctions';
+import ffmpeg from 'fluent-ffmpeg';
+import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
+import { Readable, PassThrough } from 'stream';
+
+ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
 export const dynamic = 'force-dynamic';
 
@@ -67,6 +72,97 @@ ${conversationHistory.map(msg => `${msg.role}: ${msg.parts[0].text}`).join('\n')
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// NEW VOICE PIPELINE (Gemini Native Audio)
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function downloadWhatsAppMedia(mediaId) {
+    if (!META_ACCESS_TOKEN) throw new Error("META_ACCESS_TOKEN not set");
+    
+    // 1. Get Media URL
+    const urlRes = await fetch(`https://graph.facebook.com/v18.0/${mediaId}`, {
+        headers: { 'Authorization': `Bearer ${META_ACCESS_TOKEN}` }
+    });
+    const urlData = await urlRes.json();
+    if (!urlData.url) throw new Error("Could not retrieve media URL from Meta.");
+    
+    // 2. Download Raw Audio
+    const mediaRes = await fetch(urlData.url, {
+        headers: { 'Authorization': `Bearer ${META_ACCESS_TOKEN}` }
+    });
+    
+    const arrayBuffer = await mediaRes.arrayBuffer();
+    return Buffer.from(arrayBuffer).toString('base64');
+}
+
+async function uploadToFirebaseAndSend(audioBuffer, phoneNumberId, patientPhone) {
+    try {
+        if (!adminStorage) throw new Error("Firebase Admin Storage not initialized");
+        const bucketName = process.env.FIREBASE_STORAGE_BUCKET;
+        if (!bucketName) throw new Error("FIREBASE_STORAGE_BUCKET not set");
+
+        console.log("🛠️ Transcoding audio from WAV to MP3 in memory...");
+        const transcodedBuffer = await new Promise((resolve, reject) => {
+            const inputStream = new Readable();
+            inputStream.push(audioBuffer);
+            inputStream.push(null);
+
+            const chunks = [];
+            const pt = new PassThrough();
+
+            pt.on('data', chunk => chunks.push(chunk));
+            pt.on('end', () => resolve(Buffer.concat(chunks)));
+            pt.on('error', err => reject(err));
+
+            ffmpeg(inputStream)
+                .toFormat('mp3')
+                .on('error', err => reject(new Error('FFmpeg error: ' + err.message)))
+                .pipe(pt, { end: true });
+        });
+        console.log("✅ Transcoding complete.");
+
+        const bucket = adminStorage.bucket(bucketName);
+        const filename = `voice-replies/${uuidv4()}.mp3`;
+        const file = bucket.file(filename);
+
+        // Upload to Firebase Storage
+        await file.save(transcodedBuffer, {
+            metadata: { contentType: 'audio/mpeg' },
+            public: false
+        });
+
+        // Generate signed URL (valid for 4 hours)
+        const [signedUrl] = await file.getSignedUrl({
+            action: 'read',
+            expires: Date.now() + 4 * 60 * 60 * 1000 // 4 hours from now
+        });
+
+        // Send via Meta Messages API
+        const url = `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`;
+        const payload = {
+            messaging_product: 'whatsapp',
+            to: patientPhone,
+            type: 'audio',
+            audio: { link: signedUrl }
+        };
+
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${META_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+            throw new Error(`Meta Audio Message failed: ${await res.text()}`);
+        }
+    } catch (e) {
+        console.error("❌ Firebase Storage / Meta API Error:", e);
+        throw e;
+    }
+}
+
+
+
 // 1. META WEBHOOK VERIFICATION (GET)
 export async function GET(request) {
     const { searchParams } = new URL(request.url);
@@ -119,13 +215,38 @@ export async function POST(request) {
 
         const message = value.messages[0];
         const patientPhone = message.from;
+        
+        let userText = "";
+        let isAudioIncoming = false;
+        let base64Audio = null;
+        let mimeType = "";
 
-        if (message.type !== "text") {
-            await sendWhatsAppMessage(phoneNumberId, patientPhone, "Lo siento, por ahora solo puedo leer mensajes de texto.");
+        // 1. Candado dinámico: Rechazar lo que NO sea texto, audio o voice (ej. imágenes, stickers)
+        if (message.type !== "text" && message.type !== "audio" && message.type !== "voice") {
+            await sendWhatsAppMessage(phoneNumberId, patientPhone, "Lo siento, por ahora solo puedo procesar texto y notas de voz.");
             return NextResponse.json({ status: "media_ignored" }, { status: 200 });
         }
 
-        const userText = message.text.body;
+        // 2. Extraer el contenido dependiendo del tipo
+        if (message.type === "text") {
+            userText = message.text.body;
+        } else if (message.type === "audio" || message.type === "voice") {
+            isAudioIncoming = true;
+            try {
+                // Extraer el ID correcto de la nota de voz o archivo de audio
+                const mediaId = message.type === "voice" ? message.voice.id : message.audio.id;
+                mimeType = message.type === "voice" ? message.voice.mime_type : message.audio.mime_type;
+                
+                console.log(`🎙️ Audio/Voice message received (${mediaId}). Downloading...`);
+                base64Audio = await downloadWhatsAppMedia(mediaId);
+                console.log(`✅ Audio downloaded and encoded to base64.`);
+                userText = "[Voice note received]";
+            } catch (err) {
+                console.error("❌ Failed to process incoming audio:", err);
+                await sendWhatsAppMessage(phoneNumberId, patientPhone, "Lo siento, tuve un problema escuchando tu mensaje de voz. ¿Podrías escribirlo?");
+                return NextResponse.json({ status: "audio_failed" }, { status: 200 });
+            }
+        }
 
         // 🚀 MULTI-TENANT QUERY: Find the business by their WhatsApp Phone Number ID
         const bSnap = await adminDb.collection('businesses')
@@ -160,28 +281,36 @@ export async function POST(request) {
         });
 
         // Append the current message
-        history.push({ role: 'user', parts: [{ text: userText }] });
+        if (isAudioIncoming && base64Audio) {
+            history.push({ role: 'user', parts: [{ inlineData: { mimeType: mimeType || "audio/ogg", data: base64Audio } }] });
+        } else {
+            history.push({ role: 'user', parts: [{ text: userText }] });
+        }
 
         // ═══════════════════════════════════════════════════════════════════
         // ROUTE: Internal Agent (Dra. Mya) vs. Standard Receptionist
         // ═══════════════════════════════════════════════════════════════════
-        let cleanText;
+        let agentResult;
 
         if (isInternalAgent(slug)) {
-            cleanText = await handleInternalAgent(business, history);
+            agentResult = await handleInternalAgent(business, history, isAudioIncoming);
         } else {
-            cleanText = await handleStandardAgent(business, history, patientPhone, phoneNumberId);
+            agentResult = await handleStandardAgent(business, history, patientPhone, phoneNumberId, isAudioIncoming);
         }
+
+        const cleanText = agentResult.text;
+        const replyAudioBuffer = agentResult.audioBuffer;
 
         // Save to Firebase
         await adminDb.collection('call_logs').add({
             id: uuidv4(),
             business_id: bid,
             business_slug: slug,
-            caller_text: userText,
-            agent_text: cleanText,
+            caller_text: userText, // If native audio, we don't have perfect caller_text initially. Gemini will respond mostly to audio.
+            agent_text: cleanText || "[Audio reply]",
             language: "auto",
             channel: "whatsapp",
+            incoming_type: isAudioIncoming ? "audio" : "text",
             timestamp: new Date().toISOString()
         });
 
@@ -190,8 +319,18 @@ export async function POST(request) {
             call_count: (business.call_count || 0) + 1
         });
 
-        // Send Reply via Meta
-        await sendWhatsAppMessage(phoneNumberId, patientPhone, cleanText);
+        // Send Reply via Meta (Audio or Text)
+        if (isAudioIncoming && replyAudioBuffer) {
+            try {
+                console.log(`📤 Uploading and sending audio reply...`);
+                await uploadToFirebaseAndSend(replyAudioBuffer, phoneNumberId, patientPhone);
+            } catch (err) {
+                console.error("❌ Failed to upload/send audio, falling back to text:", err);
+                await sendWhatsAppMessage(phoneNumberId, patientPhone, cleanText || "Error processing voice note.");
+            }
+        } else if (cleanText) {
+            await sendWhatsAppMessage(phoneNumberId, patientPhone, cleanText);
+        }
 
         return NextResponse.json({ status: "success" }, { status: 200 });
 
@@ -205,21 +344,30 @@ export async function POST(request) {
 // ═══════════════════════════════════════════════════════════════════════════
 // INTERNAL AGENT — Two-trip Function Calling for Dra. Mya
 // ═══════════════════════════════════════════════════════════════════════════
-async function handleInternalAgent(business, history) {
+async function handleInternalAgent(business, history, isAudioIncoming) {
     const timezone = business.timezone || 'America/Merida';
     const systemPrompt = getInternalSystemPrompt(business, timezone);
     const toolDeclarations = getInternalToolDeclarations();
 
     console.log('🩺 Internal Agent activated — Function Calling mode');
+    
+    const config = {
+        systemInstruction: systemPrompt,
+        tools: [{ functionDeclarations: toolDeclarations }],
+    };
+    
+    if (isAudioIncoming) {
+        config.responseModalities = ["AUDIO"];
+        config.speechConfig = {
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: "Puck" } }
+        };
+    }
 
     // ── FIRST TRIP: Send message with tools available ───────────────────
     const firstResponse = await ai.models.generateContent({
         model: 'gemini-2.0-flash',
         contents: history,
-        config: {
-            systemInstruction: systemPrompt,
-            tools: [{ functionDeclarations: toolDeclarations }],
-        },
+        config: config,
     });
 
     // ── CHECK: Did Gemini request any tool calls? ───────────────────────
@@ -227,7 +375,11 @@ async function handleInternalAgent(business, history) {
 
     if (!functionCalls || functionCalls.length === 0) {
         // No tools needed — Gemini answered directly
-        return cleanResponse(firstResponse.text || '');
+        const audioPart = firstResponse.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+        return {
+            text: cleanResponse(firstResponse.text || ''),
+            audioBuffer: audioPart?.inlineData?.data ? Buffer.from(audioPart.inlineData.data, 'base64') : null
+        };
     }
 
     // ── EXECUTE ALL REQUESTED TOOLS ─────────────────────────────────────
@@ -273,20 +425,22 @@ async function handleInternalAgent(business, history) {
     const secondResponse = await ai.models.generateContent({
         model: 'gemini-2.0-flash',
         contents: secondTripContents,
-        config: {
-            systemInstruction: systemPrompt,
-            tools: [{ functionDeclarations: toolDeclarations }],
-        },
+        config: config,
     });
 
-    return cleanResponse(secondResponse.text || '');
+    const finalAudioPart = secondResponse.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+
+    return {
+        text: cleanResponse(secondResponse.text || ''),
+        audioBuffer: finalAudioPart?.inlineData?.data ? Buffer.from(finalAudioPart.inlineData.data, 'base64') : null
+    };
 }
 
 
 // ═══════════════════════════════════════════════════════════════════════════
 // STANDARD AGENT — Original multi-tenant receptionist (unchanged logic)
 // ═══════════════════════════════════════════════════════════════════════════
-async function handleStandardAgent(business, history, patientPhone, phoneNumberId) {
+async function handleStandardAgent(business, history, patientPhone, phoneNumberId, isAudioIncoming) {
     const systemPrompt = `You are a professional, friendly AI receptionist for ${business.name}.
 BUSINESS DESCRIPTION: ${business.description}
 KNOWLEDGE BASE: ${business.knowledge_base}
@@ -301,14 +455,23 @@ RULES:
 - Do NOT use markdown.
 - Match the caller's language.`;
 
+    const config = { systemInstruction: systemPrompt };
+    
+    if (isAudioIncoming) {
+        config.responseModalities = ["AUDIO"];
+        config.speechConfig = {
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: "Puck" } }
+        };
+    }
+
     // Call Gemini (standard — no tools)
     const response = await ai.models.generateContent({
         model: 'gemini-2.0-flash',
         contents: history,
-        config: { systemInstruction: systemPrompt }
+        config: config
     });
 
-    let responseText = response.text;
+    let responseText = response.text || '';
     let bookData = null;
 
     // Check for Booking Intent
@@ -325,7 +488,12 @@ RULES:
         }
     }
 
-    return cleanResponse(responseText);
+    const audioPart = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+
+    return {
+        text: cleanResponse(responseText),
+        audioBuffer: audioPart?.inlineData?.data ? Buffer.from(audioPart.inlineData.data, 'base64') : null
+    };
 }
 
 
