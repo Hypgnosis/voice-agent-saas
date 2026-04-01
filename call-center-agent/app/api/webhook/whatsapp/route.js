@@ -111,8 +111,6 @@ async function uploadToFirebaseAndSend(audioBuffer, phoneNumberId, patientPhone)
             outputStream.on('data', (chunk) => chunks.push(chunk));
 
             ffmpeg(inputStream)
-                // Le decimos explícitamente qué entra para que no adivine
-                .inputFormat('wav') 
                 .format('mp3')
                 .on('end', () => {
                     // MAGIA: Ahora escuchamos el 'end' de FFmpeg, no del tubo.
@@ -453,9 +451,10 @@ async function handleInternalAgent(business, history, isAudioIncoming) {
                     speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Puck" } } }
                 }
             });
-            const geminiAudioBase64 = audioResponse.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
-            if (geminiAudioBase64) {
-                audioBuffer = Buffer.from(geminiAudioBase64, 'base64');
+            const inlineData = audioResponse.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData;
+            if (inlineData) {
+                console.log("🎵 Gemini Audio MIME Type (Internal):", inlineData.mimeType);
+                audioBuffer = Buffer.from(inlineData.data, 'base64');
             }
         } catch (e) {
             console.error("❌ Native TTS generation failed:", e);
@@ -525,9 +524,10 @@ RULES:
                     speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Puck" } } }
                 }
             });
-            const geminiAudioBase64 = audioResponse.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
-            if (geminiAudioBase64) {
-                audioBuffer = Buffer.from(geminiAudioBase64, 'base64');
+            const inlineData = audioResponse.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData;
+            if (inlineData) {
+                console.log("🎵 Gemini Audio MIME Type (Standard):", inlineData.mimeType);
+                audioBuffer = Buffer.from(inlineData.data, 'base64');
             }
         } catch (e) {
             console.error("❌ Native TTS generation failed:", e);
