@@ -111,15 +111,20 @@ async function uploadToFirebaseAndSend(audioBuffer, phoneNumberId, patientPhone)
             outputStream.on('data', (chunk) => chunks.push(chunk));
 
             ffmpeg(inputStream)
+                // 1. Le decimos qué es: Audio Crudo PCM de 16-bits (s16le)
+                .inputFormat('s16le')
+                // 2. Le damos las medidas exactas que nos reveló tu log
+                .inputOptions([
+                    '-ar 24000', // Frecuencia: 24,000 Hz
+                    '-ac 1'      // Canales: 1 (Mono)
+                ])
+                // 3. Lo convertimos al MP3 que necesita Meta
                 .format('mp3')
                 .on('end', () => {
-                    // MAGIA: Ahora escuchamos el 'end' de FFmpeg, no del tubo.
-                    // Si llega aquí, sabemos 100% que la conversión fue exitosa.
                     console.log("✅ FFmpeg Process Finished!");
                     resolve(Buffer.concat(chunks));
                 })
                 .on('error', (err) => {
-                    // Si FFmpeg falla, la Promesa muere aquí y salta a tu bloque catch
                     console.error("❌ FFmpeg Process Error:", err);
                     reject(err);
                 })
