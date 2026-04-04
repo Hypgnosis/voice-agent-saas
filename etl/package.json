@@ -1,0 +1,19 @@
+{
+  "name": "sentinel-etl",
+  "version": "1.0.0",
+  "description": "Sentinel Engine — Multi-source logistics ETL pipeline with Circuit Breaker resilience",
+  "main": "index.js",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --experimental-vm-modules ../tests/etl.test.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@google-cloud/bigquery": "^7.9.1",
+    "@google-cloud/secret-manager": "^5.6.0"
+  }
+}
