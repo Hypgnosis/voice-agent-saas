@@ -2,11 +2,11 @@
   "name": "sentinel-etl",
   "version": "1.0.0",
   "description": "Sentinel Engine — Multi-source logistics ETL pipeline with Circuit Breaker resilience",
-  "main": "index.js",
+  "main": "server.js",
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "start": "node index.js",
+    "start": "node server.js",
     "test": "node --experimental-vm-modules ../tests/etl.test.js"
   },
   "engines": {

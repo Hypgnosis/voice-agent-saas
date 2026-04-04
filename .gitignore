@@ -7,3 +7,5 @@ web/audio/*.mp3
 
 # Local Netlify folder
 .netlify
+
+scripts/node_modules/
