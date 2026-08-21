@@ -10,6 +10,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { adminDb } from '@/lib/firebase/admin';
+import { decrypt, isEncrypted } from '@/lib/crypto/vault';
 
 // ─── Dashboard URL ─────────────────────────────────────────────────────────
 const DASHBOARD_URL = process.env.NEXT_PUBLIC_SITE_URL
@@ -88,9 +89,10 @@ export async function executeGetCalendar(date, apiKey, timezone, username) {
  * @param {string} apiKey      — Cal.com API key
  * @param {string} timezone    — e.g. 'America/Merida'
  * @param {string} eventTypeId — Cal.com event type ID (stored in vault)
+ * @param {string} businessSlug — The business slug for the agent
  * @returns {object}
  */
-export async function executeBlockCalendar(date, startTime, endTime, reason, apiKey, timezone, eventTypeId) {
+export async function executeBlockCalendar(date, startTime, endTime, reason, apiKey, timezone, eventTypeId, businessSlug = 'unknown') {
   try {
     if (!apiKey) {
       return {
@@ -238,7 +240,16 @@ export async function executeGetPendingVideos() {
  */
 export async function dispatchToolCall(functionName, args, business = {}) {
   // Extract Tenant Vault credentials
-  const apiKey   = business.integrations?.calendar_api_key || '';
+  let apiKey   = business.integrations?.calendar_api_key || '';
+  // Decrypt if the key was stored encrypted in Firestore
+  if (apiKey && isEncrypted(apiKey)) {
+    try {
+      apiKey = decrypt(apiKey);
+    } catch (e) {
+      console.error('Failed to decrypt calendar_api_key:', e.message);
+      return { status: 'error', message: 'Vault decryption failed for this tenant.' };
+    }
+  }
   const timezone = business.timezone || 'America/Merida';
   const username = business.integrations?.calendar_id || 'me';
   const eventTypeId = business.integrations?.event_type_id || '0';
@@ -263,7 +274,8 @@ export async function dispatchToolCall(functionName, args, business = {}) {
         args.reason,
         apiKey,
         timezone,
-        eventTypeId
+        eventTypeId,
+        business.slug || business.id || 'unknown'
       );
     }
 

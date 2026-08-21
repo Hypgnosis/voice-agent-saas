@@ -1,28 +1,17 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// PORTAL API — Zero-Trust Tenant-Scoped Configuration
+// ═══════════════════════════════════════════════════════════════════════════
+// Replaces the deprecated HMAC token + slug pattern.
+// Every request is authenticated via Firebase ID Token and scoped to
+// the tenant's owned businesses. Cross-tenant access is impossible.
+// ═══════════════════════════════════════════════════════════════════════════
+
 import { NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase/admin';
-import crypto from 'crypto';
+import { verifySession, handleAuthError } from '@/lib/auth/verifySession';
+import { encrypt, mask, isEncrypted, decrypt } from '@/lib/crypto/vault';
 
 export const dynamic = 'force-dynamic';
-
-// ─── Token Verification ─────────────────────────────────────────────────────
-function verifyPortalToken(token, slug) {
-    if (!token) return false;
-    const [hash, timestamp] = token.split(':');
-    if (!hash || !timestamp) return false;
-
-    // Tokens expire after 4 hours
-    const age = Date.now() - parseInt(timestamp);
-    if (age > 4 * 60 * 60 * 1000) return false;
-
-    const secret = process.env.GATEWAY_TOKEN || 'default-secret-key';
-    const expected = crypto
-        .createHmac('sha256', secret)
-        .update(`${slug}:${timestamp}`)
-        .digest('hex')
-        .substring(0, 32);
-
-    return hash === expected;
-}
 
 // ─── Validation Helpers ─────────────────────────────────────────────────────
 function sanitizeEventTypeId(raw) {
@@ -43,34 +32,60 @@ const ALLOWED_INTEGRATION_KEYS = {
     event_type_id: sanitizeEventTypeId,
 };
 
+// ─── Tenant Resolution ──────────────────────────────────────────────────────
+/**
+ * Finds the business by slug AND verifies the authenticated user owns it.
+ * Returns { doc, data } or throws 403/404.
+ */
+async function resolveOwnedBusiness(slug, session) {
+    if (!adminDb) {
+        throw Object.assign(new Error('Database unavailable'), { status: 503, isAuthError: true });
+    }
+
+    const snapshot = await adminDb
+        .collection('businesses')
+        .where('slug', '==', slug)
+        .limit(1)
+        .get();
+
+    if (snapshot.empty) {
+        throw Object.assign(new Error('Agent not found'), { status: 404, isAuthError: true });
+    }
+
+    const doc = snapshot.docs[0];
+    const data = doc.data();
+
+    // Zero-Trust: verify ownership (admin bypasses)
+    if (session.role !== 'admin') {
+        if (data.owner_uid !== session.uid && !session.tenant_ids.includes(doc.id)) {
+            throw Object.assign(
+                new Error('Access denied — you do not own this resource'),
+                { status: 403, isAuthError: true }
+            );
+        }
+    }
+
+    return { doc, data };
+}
+
+
 // ─── GET: Fetch business data ───────────────────────────────────────────────
 export async function GET(request, { params }) {
     try {
-        if (!adminDb) {
-            return NextResponse.json({ error: 'Database unavailable' }, { status: 503 });
-        }
-
+        const session = await verifySession(request);
         const { slug } = await params;
-        const token = request.headers.get('x-portal-token');
+        const { doc, data } = await resolveOwnedBusiness(slug, session);
 
-        if (!verifyPortalToken(token, slug)) {
-            return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+        // Return ONLY what the client dashboard needs
+        // NEVER return raw secrets — mask the calendar_api_key
+        const calendarApiKey = data.integrations?.calendar_api_key || '';
+        let maskedKey = '';
+        if (calendarApiKey) {
+            // If it's encrypted, decrypt first then mask for display
+            const raw = isEncrypted(calendarApiKey) ? decrypt(calendarApiKey) : calendarApiKey;
+            maskedKey = mask(raw);
         }
 
-        const snapshot = await adminDb
-            .collection('businesses')
-            .where('slug', '==', slug)
-            .limit(1)
-            .get();
-
-        if (snapshot.empty) {
-            return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
-        }
-
-        const doc = snapshot.docs[0];
-        const data = doc.data();
-
-        // Return only what the client needs (no PIN, no whatsapp_number_id)
         return NextResponse.json({
             id: doc.id,
             name: data.name,
@@ -79,40 +94,32 @@ export async function GET(request, { params }) {
             greeting: data.greeting || '',
             knowledge_base: data.knowledge_base || '',
             timezone: data.timezone || 'America/Merida',
-            integrations: data.integrations || {},
+            integrations: {
+                calendar_api_key_masked: maskedKey,
+                calendar_id: data.integrations?.calendar_id || '',
+                event_type_id: data.integrations?.event_type_id || '',
+            },
             active: data.active ?? true,
         });
     } catch (error) {
-        console.error('Portal GET error:', error);
-        return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+        return handleAuthError(error);
     }
 }
+
 
 // ─── PUT: Update business data ──────────────────────────────────────────────
 export async function PUT(request, { params }) {
     try {
-        if (!adminDb) {
-            return NextResponse.json({ error: 'Database unavailable' }, { status: 503 });
-        }
-
+        const session = await verifySession(request);
         const { slug } = await params;
-        const token = request.headers.get('x-portal-token');
+        const { doc } = await resolveOwnedBusiness(slug, session);
 
-        if (!verifyPortalToken(token, slug)) {
-            return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+        const { checkRateLimit } = await import('@/lib/rateLimit');
+        const rateLimitResult = await checkRateLimit(`portal_update_${doc.id}`);
+        if (!rateLimitResult.success) {
+            return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
         }
 
-        const snapshot = await adminDb
-            .collection('businesses')
-            .where('slug', '==', slug)
-            .limit(1)
-            .get();
-
-        if (snapshot.empty) {
-            return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
-        }
-
-        const doc = snapshot.docs[0];
         const body = await request.json();
 
         // Build sanitized update — clients can ONLY update these fields:
@@ -130,7 +137,14 @@ export async function PUT(request, { params }) {
         if (body.integrations && typeof body.integrations === 'object') {
             for (const [key, sanitizer] of Object.entries(ALLOWED_INTEGRATION_KEYS)) {
                 if (body.integrations[key] !== undefined) {
-                    updateData[`integrations.${key}`] = sanitizer(body.integrations[key]);
+                    let value = sanitizer(body.integrations[key]);
+
+                    // Encrypt sensitive keys before persisting
+                    if (key === 'calendar_api_key' && value) {
+                        value = encrypt(value);
+                    }
+
+                    updateData[`integrations.${key}`] = value;
                 }
             }
         }
@@ -143,7 +157,6 @@ export async function PUT(request, { params }) {
 
         return NextResponse.json({ success: true, updated: Object.keys(updateData) });
     } catch (error) {
-        console.error('Portal PUT error:', error);
-        return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+        return handleAuthError(error);
     }
 }

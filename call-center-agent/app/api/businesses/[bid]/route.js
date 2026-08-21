@@ -1,13 +1,19 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// BUSINESS DETAIL API — Zero-Trust Tenant-Scoped Updates
+// ═══════════════════════════════════════════════════════════════════════════
+// Protected by Firebase ID Token + business ownership verification.
+// client_pin has been REMOVED from the allowlist.
+// calendar_api_key is encrypted before persistence.
+// ═══════════════════════════════════════════════════════════════════════════
+
 import { NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase/admin';
+import { verifyBusinessAccess, handleAuthError } from '@/lib/auth/verifySession';
+import { encrypt } from '@/lib/crypto/vault';
 
 export const dynamic = 'force-dynamic';
 
 // ─── Validation Helpers ─────────────────────────────────────────────────────
-/**
- * Sanitizes an event_type_id value. Cal.com IDs are strictly numeric integers.
- * Returns the stringified integer if valid, or '' if empty/invalid.
- */
 function sanitizeEventTypeId(raw) {
     if (raw === undefined || raw === null || raw === '') return '';
     const parsed = parseInt(String(raw).trim(), 10);
@@ -15,19 +21,16 @@ function sanitizeEventTypeId(raw) {
     return String(parsed);
 }
 
-/** Trims a string value, returns '' for falsy inputs. */
 function sanitizeString(val) {
     if (!val) return '';
     return String(val).trim();
 }
 
-// ─── Allowed nested integration keys ────────────────────────────────────────
 // Only these keys may be written into the integrations map.
-// Any other keys sent by the client are silently dropped.
 const ALLOWED_INTEGRATION_KEYS = {
     calendar_api_key: sanitizeString,
-    calendar_id:      sanitizeString,
-    event_type_id:    sanitizeEventTypeId,
+    calendar_id: sanitizeString,
+    event_type_id: sanitizeEventTypeId,
 };
 
 export async function PUT(request, { params }) {
@@ -37,11 +40,12 @@ export async function PUT(request, { params }) {
         }
 
         const bid = params.bid || (await params).bid;
-        const data = await request.json();
-
         if (!bid) {
-             return NextResponse.json({ error: 'Missing business ID' }, { status: 400 });
+            return NextResponse.json({ error: 'Missing business ID' }, { status: 400 });
         }
+
+        // Zero-Trust: verify the caller owns this business
+        const session = await verifyBusinessAccess(request, bid);
 
         const docRef = adminDb.collection('businesses').doc(bid);
         const doc = await docRef.get();
@@ -50,10 +54,15 @@ export async function PUT(request, { params }) {
             return NextResponse.json({ error: 'Business not found' }, { status: 404 });
         }
 
-        // ── Flat field allowlist ────────────────────────────────────────────
+        const data = await request.json();
+
+        // ── Flat field allowlist (client_pin REMOVED) ──────────────────────
         const updateData = {};
-        const allowedFields = ["name", "slug", "description", "knowledge_base", "greeting",
-                  "voice_en", "voice_es", "language", "phone_number", "whatsapp_number", "whatsapp_number_id", "active", "timezone", "client_pin"];
+        const allowedFields = [
+            "name", "slug", "description", "knowledge_base", "greeting",
+            "voice_en", "voice_es", "language", "phone_number",
+            "whatsapp_number", "whatsapp_number_id", "active", "timezone"
+        ];
 
         for (let field of allowedFields) {
             if (data[field] !== undefined) {
@@ -61,14 +70,18 @@ export async function PUT(request, { params }) {
             }
         }
 
-        // ── Secure nested integrations extraction ───────────────────────────
-        // Only explicitly allowlisted keys are extracted from the client payload.
-        // Each value runs through its own sanitizer before hitting Firestore.
-        // Raw client data never passes through — prevents mass-assignment attacks.
+        // ── Secure nested integrations extraction ──────────────────────────
         if (data.integrations && typeof data.integrations === 'object') {
             for (const [key, sanitizer] of Object.entries(ALLOWED_INTEGRATION_KEYS)) {
                 if (data.integrations[key] !== undefined) {
-                    updateData[`integrations.${key}`] = sanitizer(data.integrations[key]);
+                    let value = sanitizer(data.integrations[key]);
+
+                    // Encrypt sensitive keys before persisting
+                    if (key === 'calendar_api_key' && value) {
+                        value = encrypt(value);
+                    }
+
+                    updateData[`integrations.${key}`] = value;
                 }
             }
         }
@@ -77,10 +90,14 @@ export async function PUT(request, { params }) {
             await docRef.update(updateData);
         }
 
-        return NextResponse.json({ id: bid, ...doc.data(), ...updateData });
+        // Return only safe metadata — never return raw secrets
+        return NextResponse.json({
+            id: bid,
+            updated: Object.keys(updateData),
+            success: true,
+        });
 
-    } catch (e) {
-        console.error('PUT /api/businesses/[bid] error:', e);
-        return NextResponse.json({ error: 'Database error', details: e.message }, { status: 500 });
+    } catch (error) {
+        return handleAuthError(error);
     }
 }

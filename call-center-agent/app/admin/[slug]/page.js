@@ -2,10 +2,16 @@
 import { useState, useEffect, useCallback, use } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Mic, ChevronLeft, Loader2, AlertTriangle, CheckCircle2, X, MessageSquare, Clock, CalendarDays, KeyRound, Hash, Lock, ShieldAlert, ArrowLeft } from 'lucide-react';
+import { Loader2, AlertTriangle, CheckCircle2, X, MessageSquare, Clock, CalendarDays, KeyRound, Hash, Lock, ShieldAlert, ArrowLeft, LogOut } from 'lucide-react';
+import { auth } from '@/lib/firebase/client';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
 
 // ═══════════════════════════════════════════════════════════════════════════
-// STYLE CONSTANTS — NO wrapper components, just class strings
+// CLIENT DASHBOARD — Firebase Auth Protected
+// ═══════════════════════════════════════════════════════════════════════════
+// Replaces the deprecated sessionStorage slug+token pattern.
+// Uses Firebase onAuthStateChanged for persistent auth state, and
+// passes Firebase ID Token on every API call.
 // ═══════════════════════════════════════════════════════════════════════════
 const IC = "w-full bg-obsidian border border-border-clinical rounded-lg px-3 py-2.5 text-sm text-mercury focus:border-archytech-violet/50 focus:outline-none transition-colors placeholder:text-mercury/20";
 const LC = "block text-xs text-mercury/50 mb-1.5 font-medium uppercase tracking-wider";
@@ -19,29 +25,42 @@ export default function ClientDashboard({ params }) {
     const [accessDenied, setAccessDenied] = useState(false);
     const [logs, setLogs] = useState([]);
     const [logsLoading, setLogsLoading] = useState(false);
+    const [currentUser, setCurrentUser] = useState(null);
 
     const showToast = useCallback((message, type = 'success') => {
         setToast({ message, type });
         setTimeout(() => setToast(null), 4000);
     }, []);
 
+    // Firebase Auth state listener — replaces sessionStorage check
     useEffect(() => {
-        // Verify session
-        const storedSlug = sessionStorage.getItem('portal_slug');
-        const token = sessionStorage.getItem('portal_token');
-        if (storedSlug !== slug || !token) {
-            setAccessDenied(true);
-            setLoading(false);
-            return;
-        }
-        fetchBusiness(token);
+        const unsubscribe = onAuthStateChanged(auth, async (user) => {
+            if (!user) {
+                setAccessDenied(true);
+                setLoading(false);
+                return;
+            }
+            setCurrentUser(user);
+            const idToken = await user.getIdToken();
+            fetchBusiness(idToken);
+        });
+        return () => unsubscribe();
     }, [slug]);
+
+    /**
+     * Returns a fresh Firebase ID Token for API calls.
+     * Automatically refreshes expired tokens.
+     */
+    const getToken = async () => {
+        if (!currentUser) throw new Error('Not authenticated');
+        return await currentUser.getIdToken(true); // Force refresh
+    };
 
     const fetchBusiness = async (token) => {
         setLoading(true);
         try {
             const res = await fetch(`/api/portal/${slug}`, {
-                headers: { 'x-portal-token': token || sessionStorage.getItem('portal_token') },
+                headers: { 'Authorization': `Bearer ${token}` },
             });
             if (res.status === 403 || res.status === 401) {
                 setAccessDenied(true);
@@ -51,7 +70,7 @@ export default function ClientDashboard({ params }) {
             const data = await res.json();
             if (res.ok) {
                 setBusiness(data);
-                fetchLogs(data.id);
+                fetchLogs(data.id, token);
             }
         } catch (e) {
             showToast('Failed to load dashboard', 'error');
@@ -59,10 +78,13 @@ export default function ClientDashboard({ params }) {
         setLoading(false);
     };
 
-    const fetchLogs = async (bizId) => {
+    const fetchLogs = async (bizId, token) => {
         setLogsLoading(true);
         try {
-            const res = await fetch(`/api/businesses/${bizId}/logs`);
+            const t = token || await getToken();
+            const res = await fetch(`/api/businesses/${bizId}/logs`, {
+                headers: { 'Authorization': `Bearer ${t}` },
+            });
             const data = await res.json();
             setLogs(Array.isArray(data) ? data : []);
         } catch {
@@ -84,13 +106,13 @@ export default function ClientDashboard({ params }) {
 
     const saveChanges = async () => {
         setSaving(true);
-        const token = sessionStorage.getItem('portal_token');
         try {
+            const token = await getToken();
             const res = await fetch(`/api/portal/${slug}`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
-                    'x-portal-token': token,
+                    'Authorization': `Bearer ${token}`,
                 },
                 body: JSON.stringify({
                     knowledge_base: business.knowledge_base,
@@ -116,6 +138,11 @@ export default function ClientDashboard({ params }) {
         setSaving(false);
     };
 
+    const handleSignOut = async () => {
+        await signOut(auth);
+        window.location.href = '/portal';
+    };
+
     // ── Access Denied ──────────────────────────────────────────────────────
     if (accessDenied) {
         return (
@@ -126,7 +153,7 @@ export default function ClientDashboard({ params }) {
                     </div>
                     <div>
                         <h1 className="text-2xl font-bold mb-2">Access Denied</h1>
-                        <p className="text-sm text-mercury/40 max-w-md">Your session has expired or credentials are invalid.</p>
+                        <p className="text-sm text-mercury/40 max-w-md">Your session has expired or you do not have access to this resource.</p>
                     </div>
                     <Link href="/portal" className="inline-flex items-center gap-2 bg-archytech-violet/10 text-archytech-violet px-6 py-3 rounded-xl text-sm font-semibold border border-archytech-violet/20 hover:bg-archytech-violet/20 transition-colors">
                         <Lock size={16} /> Return to Portal Login
@@ -180,14 +207,10 @@ export default function ClientDashboard({ params }) {
                     </div>
                 </div>
                 <button
-                    onClick={() => {
-                        sessionStorage.removeItem('portal_slug');
-                        sessionStorage.removeItem('portal_token');
-                        window.location.href = '/portal';
-                    }}
-                    className="text-xs text-mercury/40 hover:text-red-400 transition-colors"
+                    onClick={handleSignOut}
+                    className="text-xs text-mercury/40 hover:text-red-400 transition-colors flex items-center gap-1.5"
                 >
-                    Sign Out
+                    <LogOut size={12} /> Sign Out
                 </button>
             </header>
 
@@ -253,9 +276,13 @@ export default function ClientDashboard({ params }) {
                         <label className={LC}>Booking API Key (Cal.com)</label>
                         <div className="relative">
                             <KeyRound size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
-                            <input type="password" value={business?.integrations?.calendar_api_key || ''} onChange={(e) => handleIntegrationChange('calendar_api_key', e.target.value)} placeholder="cal_live_xxxxxx" className={IC + " pl-9 font-mono"} />
+                            <input type="password" value={business?.integrations?.calendar_api_key || ''} onChange={(e) => handleIntegrationChange('calendar_api_key', e.target.value)} placeholder={business?.integrations?.calendar_api_key_masked || 'cal_live_xxxxxx'} className={IC + " pl-9 font-mono"} />
                         </div>
-                        <p className="text-[10px] text-mercury/30 mt-1">Stored securely. Allows the AI agent to read/write to your calendar.</p>
+                        <p className="text-[10px] text-mercury/30 mt-1">
+                            {business?.integrations?.calendar_api_key_masked
+                                ? `Current key: ${business.integrations.calendar_api_key_masked} — enter a new value to replace.`
+                                : 'Not configured. Enter your Cal.com API key.'}
+                        </p>
                     </div>
                     <div>
                         <label className={LC}>Event Type ID (Cal.com)</label>

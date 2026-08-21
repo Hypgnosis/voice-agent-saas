@@ -2,96 +2,90 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Mic, ChevronLeft, Users, Plus, Loader2, ExternalLink, AlertTriangle, CheckCircle2, X, MessageSquare, Clock, Phone, CalendarDays, KeyRound, Hash, Shield, Lock, ArrowLeft } from 'lucide-react';
+import { Users, Plus, Loader2, ExternalLink, AlertTriangle, CheckCircle2, X, MessageSquare, Clock, Phone, CalendarDays, KeyRound, Hash, Shield, ArrowLeft, LogOut } from 'lucide-react';
+import { auth } from '@/lib/firebase/client';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
 
 // ═══════════════════════════════════════════════════════════════════════════
-// GOD MODE GATE — Master PIN protects the full dashboard
+// ADMIN GATE — Firebase Auth + RBAC (replaces God Mode PIN)
 // ═══════════════════════════════════════════════════════════════════════════
-function GodModeGate({ onAuthenticated }) {
-    const [pin, setPin] = useState('');
-    const [error, setError] = useState('');
-    const [checking, setChecking] = useState(false);
+function AdminGate({ onAuthenticated }) {
+    const [checking, setChecking] = useState(true);
+    const [denied, setDenied] = useState(false);
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        setError('');
-        setChecking(true);
-        try {
-            const res = await fetch('/api/auth/verify-master', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ pin }),
-            });
-            if (res.ok) {
-                sessionStorage.setItem('god_mode_authed', 'true');
-                onAuthenticated();
-            } else {
-                const data = await res.json();
-                setError(data.error || 'Access denied');
+    useEffect(() => {
+        const unsubscribe = onAuthStateChanged(auth, async (user) => {
+            if (!user) {
+                setDenied(true);
+                setChecking(false);
+                return;
             }
-        } catch {
-            setError('Network error');
-        }
-        setChecking(false);
-    };
 
-    return (
-        <main className="min-h-screen bg-obsidian text-mercury font-sans flex items-center justify-center relative">
-            {/* Back Button */}
-            <div className="fixed top-6 left-6 z-20">
-                <Link href="/" className="back-btn">
-                    <ArrowLeft size={16} />
-                    Back to Home
-                </Link>
-            </div>
+            try {
+                const idToken = await user.getIdToken();
+                const res = await fetch('/api/auth/verify-master', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${idToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                });
 
-            <div className="w-full max-w-md mx-auto">
-                <div className="clinical-panel p-8 space-y-6">
-                    <div className="flex flex-col items-center gap-3">
-                        <Image
-                            src="/sovereign-agent-logo.png"
-                            alt="Sovereign Agent"
-                            width={64}
-                            height={64}
-                            className="drop-shadow-[0_0_20px_rgba(139,92,246,0.4)]"
-                        />
-                        <h1 className="text-xl font-bold tracking-tight">Sovereign Command</h1>
-                        <p className="text-xs text-mercury/40 text-center uppercase tracking-[0.2em]">God Mode — Administrator Access</p>
-                    </div>
-                    <form onSubmit={handleSubmit} className="space-y-4">
-                        <div>
-                            <label className="block text-xs text-mercury/50 mb-1.5 font-medium uppercase tracking-wider">Master PIN</label>
-                            <div className="relative">
-                                <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
-                                <input
-                                    type="password"
-                                    value={pin}
-                                    onChange={(e) => setPin(e.target.value)}
-                                    placeholder="••••••••"
-                                    autoFocus
-                                    className="w-full bg-obsidian border border-border-clinical rounded-lg px-3 py-3 text-sm text-mercury focus:border-red-500/50 focus:outline-none transition-colors placeholder:text-mercury/20 pl-9 font-mono tracking-widest"
-                                />
-                            </div>
-                        </div>
-                        {error && <p className="text-xs text-red-400 text-center">{error}</p>}
-                        <button
-                            type="submit"
-                            disabled={checking || !pin.trim()}
-                            className="w-full bg-red-500/10 text-red-400 border border-red-500/20 px-6 py-3 rounded-xl text-sm font-bold hover:bg-red-500/20 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-                        >
-                            {checking ? <Loader2 size={16} className="animate-spin" /> : <Shield size={16} />}
-                            {checking ? 'Verifying...' : 'Authenticate'}
-                        </button>
-                    </form>
+                if (res.ok) {
+                    onAuthenticated(user, idToken);
+                } else {
+                    setDenied(true);
+                }
+            } catch {
+                setDenied(true);
+            }
+            setChecking(false);
+        });
+        return () => unsubscribe();
+    }, [onAuthenticated]);
+
+    if (checking) {
+        return (
+            <main className="min-h-screen bg-obsidian text-mercury font-sans flex items-center justify-center">
+                <div className="text-center space-y-4">
+                    <Loader2 size={24} className="animate-spin text-archytech-violet mx-auto" />
+                    <p className="text-sm text-mercury/40">Verifying administrator credentials...</p>
                 </div>
-            </div>
-        </main>
-    );
+            </main>
+        );
+    }
+
+    if (denied) {
+        return (
+            <main className="min-h-screen bg-obsidian text-mercury font-sans flex items-center justify-center relative">
+                <div className="fixed top-6 left-6 z-20">
+                    <Link href="/" className="back-btn">
+                        <ArrowLeft size={16} />
+                        Back to Home
+                    </Link>
+                </div>
+                <div className="text-center space-y-6">
+                    <div className="w-16 h-16 rounded-2xl bg-red-500/10 flex items-center justify-center text-red-400 mx-auto border border-red-500/20">
+                        <Shield size={28} />
+                    </div>
+                    <div>
+                        <h1 className="text-xl font-bold mb-2">Access Denied</h1>
+                        <p className="text-sm text-mercury/40 max-w-sm">You must be signed in with an administrator account to access this panel.</p>
+                    </div>
+                    <Link href="/portal" className="inline-flex items-center gap-2 bg-archytech-violet/10 text-archytech-violet px-6 py-3 rounded-xl text-sm font-semibold border border-archytech-violet/20 hover:bg-archytech-violet/20 transition-colors">
+                        Sign In
+                    </Link>
+                </div>
+            </main>
+        );
+    }
+
+    return null;
 }
 
 
 // ═══════════════════════════════════════════════════════════════════════════
-// STYLE CONSTANTS — NO wrapper components, just class strings
+// STYLE CONSTANTS
 // ═══════════════════════════════════════════════════════════════════════════
 const IC = "w-full bg-obsidian border border-border-clinical rounded-lg px-3 py-2.5 text-sm text-mercury focus:border-archytech-violet/50 focus:outline-none transition-colors placeholder:text-mercury/20";
 const LC = "block text-xs text-mercury/50 mb-1.5 font-medium uppercase tracking-wider";
@@ -106,46 +100,52 @@ const EMPTY_AGENT = {
     voice_es: 'es-MX-DaliaNeural',
     language: 'auto',
     whatsapp_number_id: '',
-    // Tenant Vault
     timezone: 'America/Merida',
     calendar_api_key: '',
     calendar_id: '',
     event_type_id: '',
-    client_pin: '',
 };
+
 
 export default function SuperAdminPage() {
     const [authenticated, setAuthenticated] = useState(false);
+    const [currentUser, setCurrentUser] = useState(null);
 
-    // Check if already authed this session
-    useEffect(() => {
-        if (typeof window !== 'undefined' && sessionStorage.getItem('god_mode_authed') === 'true') {
-            setAuthenticated(true);
-        }
+    const handleAuthenticated = useCallback((user, _token) => {
+        setCurrentUser(user);
+        setAuthenticated(true);
     }, []);
 
     if (!authenticated) {
-        return <GodModeGate onAuthenticated={() => setAuthenticated(true)} />;
+        return <AdminGate onAuthenticated={handleAuthenticated} />;
     }
 
-    return <Dashboard />;
+    return <Dashboard currentUser={currentUser} />;
 }
 
+
 // ═══════════════════════════════════════════════════════════════════════════
-// FULL DASHBOARD (original admin, now behind God Mode)
+// FULL DASHBOARD (behind Firebase Auth + admin role)
 // ═══════════════════════════════════════════════════════════════════════════
-function Dashboard() {
+function Dashboard({ currentUser }) {
     const [businesses, setBusinesses] = useState([]);
     const [selected, setSelected] = useState(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
-    const [seeding, setSeeding] = useState(false);
     const [creating, setCreating] = useState(false);
     const [newAgent, setNewAgent] = useState({ ...EMPTY_AGENT });
     const [toast, setToast] = useState(null);
     const [apiError, setApiError] = useState(null);
     const [logs, setLogs] = useState([]);
     const [logsLoading, setLogsLoading] = useState(false);
+
+    /**
+     * Returns a fresh Firebase ID Token for API calls.
+     */
+    const getToken = async () => {
+        if (!currentUser) throw new Error('Not authenticated');
+        return await currentUser.getIdToken(true);
+    };
 
     useEffect(() => {
         fetchBusinesses();
@@ -160,7 +160,10 @@ function Dashboard() {
         setLoading(true);
         setApiError(null);
         try {
-            const res = await fetch('/api/businesses');
+            const token = await getToken();
+            const res = await fetch('/api/businesses', {
+                headers: { 'Authorization': `Bearer ${token}` },
+            });
             const data = await res.json();
             if (res.ok) {
                 setBusinesses(Array.isArray(data) ? data : []);
@@ -173,27 +176,13 @@ function Dashboard() {
         setLoading(false);
     };
 
-    const seedDatabase = async () => {
-        setSeeding(true);
-        try {
-            const res = await fetch('/api/setup', { method: 'POST' });
-            const data = await res.json();
-            if (res.ok) {
-                showToast(data.message || 'Database seeded!');
-                fetchBusinesses();
-            } else {
-                showToast(data.error || 'Seed failed', 'error');
-            }
-        } catch (e) {
-            showToast('Network error during seed', 'error');
-        }
-        setSeeding(false);
-    };
-
     const fetchLogs = async (bizId) => {
         setLogsLoading(true);
         try {
-            const res = await fetch(`/api/businesses/${bizId}/logs`);
+            const token = await getToken();
+            const res = await fetch(`/api/businesses/${bizId}/logs`, {
+                headers: { 'Authorization': `Bearer ${token}` },
+            });
             const data = await res.json();
             setLogs(Array.isArray(data) ? data : []);
         } catch (e) {
@@ -227,12 +216,16 @@ function Dashboard() {
             return;
         }
         const slug = newAgent.slug.trim() || generateSlug(newAgent.name);
-        
+
         setSaving(true);
         try {
+            const token = await getToken();
             const res = await fetch('/api/businesses', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                },
                 body: JSON.stringify({ ...newAgent, slug }),
             });
             const data = await res.json();
@@ -257,9 +250,13 @@ function Dashboard() {
         }
         setSaving(true);
         try {
+            const token = await getToken();
             const res = await fetch(`/api/businesses/${selected.id}`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                },
                 body: JSON.stringify(selected),
             });
             const data = await res.json();
@@ -281,13 +278,18 @@ function Dashboard() {
         setNewAgent({ ...EMPTY_AGENT });
     };
 
+    const handleSignOut = async () => {
+        await signOut(auth);
+        window.location.href = '/';
+    };
+
     return (
         <main className="min-h-screen bg-obsidian text-mercury font-sans">
             {/* Toast Notification */}
             {toast && (
                 <div className={`fixed top-4 right-4 z-50 flex items-center gap-3 px-5 py-3 rounded-xl shadow-2xl border text-sm font-medium animate-[fadeIn_0.3s_ease] ${
-                    toast.type === 'error' 
-                        ? 'bg-red-500/10 border-red-500/30 text-red-300' 
+                    toast.type === 'error'
+                        ? 'bg-red-500/10 border-red-500/30 text-red-300'
                         : 'bg-green-500/10 border-green-500/30 text-green-300'
                 }`}>
                     {toast.type === 'error' ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}
@@ -311,11 +313,14 @@ function Dashboard() {
                             className="drop-shadow-[0_0_10px_rgba(139,92,246,0.3)]"
                         />
                         <div>
-                            <h1 className="text-base font-bold tracking-tight">Sovereign Command — God Mode</h1>
-                            <span className="text-[10px] text-red-400/70 uppercase tracking-[0.2em]">Full Administrator Access</span>
+                            <h1 className="text-base font-bold tracking-tight">Sovereign Command — Administrator</h1>
+                            <span className="text-[10px] text-archytech-violet/70 uppercase tracking-[0.2em]">Firebase Auth — {currentUser?.email}</span>
                         </div>
                     </div>
                 </div>
+                <button onClick={handleSignOut} className="text-xs text-mercury/40 hover:text-red-400 transition-colors flex items-center gap-1.5">
+                    <LogOut size={12} /> Sign Out
+                </button>
             </header>
 
             <div className="flex h-[calc(100vh-65px)]">
@@ -343,16 +348,13 @@ function Dashboard() {
                             <div className="text-center py-8 space-y-4">
                                 <AlertTriangle size={24} className="mx-auto text-amber-400/60" />
                                 <p className="text-sm text-amber-400/80">{apiError}</p>
-                                <button onClick={seedDatabase} disabled={seeding} className="text-xs text-archytech-violet underline hover:no-underline disabled:opacity-50">
-                                    {seeding ? 'Seeding...' : 'Seed Aethos Agent →'}
-                                </button>
                             </div>
                         ) : businesses.length === 0 ? (
                             <div className="text-center py-8 space-y-4">
                                 <Users size={24} className="mx-auto text-mercury/30" />
                                 <p className="text-sm text-mercury/40">No agents yet</p>
-                                <button onClick={seedDatabase} disabled={seeding} className="px-4 py-2 rounded-lg bg-archytech-violet/10 text-archytech-violet border border-archytech-violet/20 text-xs font-semibold hover:bg-archytech-violet/20 transition-colors disabled:opacity-50">
-                                    {seeding ? 'Seeding...' : '🚀 Seed Aethos Agent'}
+                                <button onClick={openCreateForm} className="px-4 py-2 rounded-lg bg-archytech-violet/10 text-archytech-violet border border-archytech-violet/20 text-xs font-semibold hover:bg-archytech-violet/20 transition-colors disabled:opacity-50">
+                                    Create First Agent
                                 </button>
                             </div>
                         ) : (
@@ -362,8 +364,8 @@ function Dashboard() {
                                         key={biz.id}
                                         onClick={() => handleSelect(biz)}
                                         className={`w-full text-left p-3 rounded-xl transition-all ${
-                                            selected?.id === biz.id 
-                                                ? 'bg-archytech-violet/10 border border-archytech-violet/30' 
+                                            selected?.id === biz.id
+                                                ? 'bg-archytech-violet/10 border border-archytech-violet/30'
                                                 : 'clinical-panel hover:border-mercury/20'
                                         }`}
                                     >
@@ -405,21 +407,11 @@ function Dashboard() {
                                         <p className="text-[10px] text-mercury/30 mt-1">Agent URL: /agent/{newAgent.slug || generateSlug(newAgent.name) || 'slug'}</p>
                                     </div>
                                 </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className={LC}>Meta WhatsApp Phone Number ID</label>
-                                        <div className="relative">
-                                            <Phone size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
-                                            <input type="text" value={newAgent.whatsapp_number_id} onChange={(e) => handleNewAgentChange('whatsapp_number_id', e.target.value)} placeholder="e.g. 123456789012345" className={IC + " pl-9 font-mono"} />
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className={LC}>Client Portal PIN</label>
-                                        <div className="relative">
-                                            <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
-                                            <input type="text" value={newAgent.client_pin} onChange={(e) => handleNewAgentChange('client_pin', e.target.value)} placeholder="e.g. 8472" className={IC + " pl-9 font-mono"} />
-                                        </div>
-                                        <p className="text-[10px] text-mercury/30 mt-1">This PIN is given to the client to access their isolated /portal dashboard.</p>
+                                <div>
+                                    <label className={LC}>Meta WhatsApp Phone Number ID</label>
+                                    <div className="relative">
+                                        <Phone size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
+                                        <input type="text" value={newAgent.whatsapp_number_id} onChange={(e) => handleNewAgentChange('whatsapp_number_id', e.target.value)} placeholder="e.g. 123456789012345" className={IC + " pl-9 font-mono"} />
                                     </div>
                                 </div>
                             </div>
@@ -492,6 +484,7 @@ function Dashboard() {
                                         <KeyRound size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
                                         <input type="password" value={newAgent.calendar_api_key} onChange={(e) => handleNewAgentChange('calendar_api_key', e.target.value)} placeholder="cal_live_xxxxxx" className={IC + " pl-9 font-mono"} />
                                     </div>
+                                    <p className="text-[10px] text-mercury/30 mt-1">Encrypted via AES-256-GCM before storage.</p>
                                 </div>
                                 <div>
                                     <label className={LC}>Event Type ID (Cal.com)</label>
@@ -568,19 +561,6 @@ function Dashboard() {
                                 </div>
                             </div>
 
-                            {/* Client Portal PIN */}
-                            <div className="clinical-panel p-6 space-y-4">
-                                <h3 className="text-xs uppercase tracking-widest text-mercury/50 font-semibold mb-4 flex items-center gap-2"><Lock size={14} /> Client Portal Access</h3>
-                                <div>
-                                    <label className={LC}>Client PIN</label>
-                                    <div className="relative">
-                                        <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
-                                        <input type="text" value={selected.client_pin || ''} onChange={(e) => handleChange('client_pin', e.target.value)} placeholder="e.g. 8472" className={IC + " pl-9 font-mono"} />
-                                    </div>
-                                    <p className="text-[10px] text-mercury/30 mt-1">Give this PIN to the client for /portal access. They use their slug + this PIN to log in.</p>
-                                </div>
-                            </div>
-
                             <div className="clinical-panel p-6">
                                 <h3 className="text-xs uppercase tracking-widest text-mercury/50 font-semibold mb-4">Knowledge Base</h3>
                                 <textarea rows={12} value={selected.knowledge_base || ''} onChange={(e) => handleChange('knowledge_base', e.target.value)} className={IC + " resize-none font-mono text-xs"} />
@@ -632,8 +612,11 @@ function Dashboard() {
                                     <label className={LC}>Booking API Key (Cal.com)</label>
                                     <div className="relative">
                                         <KeyRound size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
-                                        <input type="password" value={selected.integrations?.calendar_api_key || ''} onChange={(e) => { setSelected(prev => ({ ...prev, integrations: { ...prev.integrations, calendar_api_key: e.target.value } })); }} placeholder="cal_live_xxxxxx" className={IC + " pl-9 font-mono"} />
+                                        <input type="password" value={selected.integrations?.calendar_api_key || ''} onChange={(e) => { setSelected(prev => ({ ...prev, integrations: { ...prev.integrations, calendar_api_key: e.target.value } })); }} placeholder="Enter new key to replace" className={IC + " pl-9 font-mono"} />
                                     </div>
+                                    <p className="text-[10px] text-mercury/30 mt-1">
+                                        {selected.integrations?.has_calendar_key ? '✅ Key configured (encrypted) — enter a new value to replace.' : 'Not configured.'}
+                                    </p>
                                 </div>
                                 <div>
                                     <label className={LC}>Event Type ID (Cal.com)</label>

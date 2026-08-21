@@ -2,43 +2,80 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Loader2, Lock, ArrowRight, ArrowLeft, AlertTriangle, Shield } from 'lucide-react';
+import { Loader2, Lock, ArrowRight, ArrowLeft, AlertTriangle, Shield, Mail } from 'lucide-react';
+import { auth } from '@/lib/firebase/client';
+import { signInWithEmailAndPassword } from 'firebase/auth';
 
 // ═══════════════════════════════════════════════════════════════════════════
-// CLIENT PORTAL GATEWAY — Login with slug + client_pin
+// CLIENT PORTAL GATEWAY — Firebase Auth (Email/Password)
+// ═══════════════════════════════════════════════════════════════════════════
+// Replaces the deprecated slug + client_pin flow.
+// On successful Firebase Auth, the ID Token is stored and used for all
+// subsequent API calls via Authorization: Bearer <idToken>.
 // ═══════════════════════════════════════════════════════════════════════════
 export default function PortalPage() {
-    const [slug, setSlug] = useState('');
-    const [pin, setPin] = useState('');
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
 
     const handleLogin = async (e) => {
         e.preventDefault();
         setError('');
-        if (!slug.trim() || !pin.trim()) {
-            setError('Both fields are required');
+        if (!email.trim() || !password.trim()) {
+            setError('Email and password are required');
             return;
         }
 
         setLoading(true);
         try {
-            const res = await fetch('/api/auth/verify-client', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ slug: slug.trim().toLowerCase(), pin: pin.trim() }),
+            const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
+            const user = userCredential.user;
+
+            // Get the Firebase ID Token for API authentication
+            const idToken = await user.getIdToken();
+
+            // Store auth state for the session
+            sessionStorage.setItem('portal_token', idToken);
+            sessionStorage.setItem('portal_uid', user.uid);
+            sessionStorage.setItem('portal_email', user.email || '');
+
+            // Fetch the user's business to determine redirect slug
+            const res = await fetch('/api/businesses', {
+                headers: { 'Authorization': `Bearer ${idToken}` },
             });
-            const data = await res.json();
+
             if (res.ok) {
-                // Store auth token in session and redirect
-                sessionStorage.setItem('portal_slug', data.slug);
-                sessionStorage.setItem('portal_token', data.token);
-                window.location.href = `/admin/${data.slug}`;
+                const businesses = await res.json();
+                if (businesses.length > 0) {
+                    // Redirect to the first owned business dashboard
+                    window.location.href = `/admin/${businesses[0].slug}`;
+                } else {
+                    setError('No agents are associated with your account. Contact your administrator.');
+                }
             } else {
-                setError(data.error || 'Access denied');
+                setError('Failed to load your dashboard. Please try again.');
             }
-        } catch {
-            setError('Network error — try again');
+        } catch (err) {
+            // Map Firebase error codes to user-friendly messages
+            switch (err.code) {
+                case 'auth/invalid-email':
+                    setError('Invalid email address');
+                    break;
+                case 'auth/user-disabled':
+                    setError('This account has been disabled');
+                    break;
+                case 'auth/user-not-found':
+                case 'auth/wrong-password':
+                case 'auth/invalid-credential':
+                    setError('Invalid email or password');
+                    break;
+                case 'auth/too-many-requests':
+                    setError('Too many attempts — please wait before trying again');
+                    break;
+                default:
+                    setError('Authentication failed — please try again');
+            }
         }
         setLoading(false);
     };
@@ -70,37 +107,38 @@ export default function PortalPage() {
                         className="mx-auto mb-6 drop-shadow-[0_0_20px_rgba(139,92,246,0.4)]"
                     />
                     <h1 className="text-2xl font-bold tracking-tight mb-2">Client Portal</h1>
-                    <p className="text-sm text-mercury/40">Access your Sovereign Agent dashboard</p>
+                    <p className="text-sm text-mercury/40">Secure access to your Sovereign Agent dashboard</p>
                 </div>
 
                 {/* Login Form */}
                 <div className="clinical-panel p-8 space-y-6">
                     <form onSubmit={handleLogin} className="space-y-5">
                         <div>
-                            <label className="block text-xs text-mercury/50 mb-1.5 font-medium uppercase tracking-wider">Agent Identifier</label>
+                            <label className="block text-xs text-mercury/50 mb-1.5 font-medium uppercase tracking-wider">Email</label>
                             <div className="relative">
-                                <Shield size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
+                                <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
                                 <input
-                                    type="text"
-                                    value={slug}
-                                    onChange={(e) => setSlug(e.target.value)}
-                                    placeholder="your-business-slug"
+                                    type="email"
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    placeholder="you@company.com"
                                     autoFocus
-                                    className="w-full bg-obsidian border border-border-clinical rounded-lg px-3 py-3 text-sm text-mercury focus:border-archytech-violet/50 focus:outline-none transition-colors placeholder:text-mercury/20 pl-9 font-mono"
+                                    autoComplete="email"
+                                    className="w-full bg-obsidian border border-border-clinical rounded-lg px-3 py-3 text-sm text-mercury focus:border-archytech-violet/50 focus:outline-none transition-colors placeholder:text-mercury/20 pl-9"
                                 />
                             </div>
-                            <p className="text-[10px] text-mercury/30 mt-1">The unique identifier provided by your account manager</p>
                         </div>
 
                         <div>
-                            <label className="block text-xs text-mercury/50 mb-1.5 font-medium uppercase tracking-wider">Access PIN</label>
+                            <label className="block text-xs text-mercury/50 mb-1.5 font-medium uppercase tracking-wider">Password</label>
                             <div className="relative">
                                 <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
                                 <input
                                     type="password"
-                                    value={pin}
-                                    onChange={(e) => setPin(e.target.value)}
-                                    placeholder="••••"
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    placeholder="••••••••"
+                                    autoComplete="current-password"
                                     className="w-full bg-obsidian border border-border-clinical rounded-lg px-3 py-3 text-sm text-mercury focus:border-archytech-violet/50 focus:outline-none transition-colors placeholder:text-mercury/20 pl-9 font-mono tracking-widest"
                                 />
                             </div>
@@ -115,11 +153,11 @@ export default function PortalPage() {
 
                         <button
                             type="submit"
-                            disabled={loading || !slug.trim() || !pin.trim()}
+                            disabled={loading || !email.trim() || !password.trim()}
                             className="w-full bg-archytech-violet text-white px-6 py-3 rounded-xl text-sm font-bold hover:bg-archytech-violet/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(139,92,246,0.3)]"
                         >
                             {loading ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
-                            {loading ? 'Authenticating...' : 'Initiate Protocol'}
+                            {loading ? 'Authenticating...' : 'Sign In'}
                         </button>
                     </form>
                 </div>
