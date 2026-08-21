@@ -3,5 +3,14 @@
   command = "npm run build"
   publish = ".next"
 
+  # These are all client-exposed by design (NEXT_PUBLIC_* is inlined into the
+  # browser bundle on purpose) or non-sensitive identifiers (a Firebase
+  # project ID isn't a credential). Netlify's secret scanner otherwise treats
+  # their expected presence in build output / .firebaserc as a leak.
+  # Real secrets (FIREBASE_PRIVATE_KEY, GEMINI_API_KEY, META_ACCESS_TOKEN,
+  # VAULT_ENCRYPTION_KEY, etc.) are deliberately NOT in this list.
+  [build.environment]
+    SECRETS_SCAN_OMIT_KEYS = "FIREBASE_PROJECT_ID,NEXT_PUBLIC_FIREBASE_API_KEY,NEXT_PUBLIC_FIREBASE_APP_ID,NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,NEXT_PUBLIC_FIREBASE_PROJECT_ID,NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET"
+
 [[plugins]]
   package = "@netlify/plugin-nextjs"
