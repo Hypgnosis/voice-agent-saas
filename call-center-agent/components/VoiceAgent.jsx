@@ -186,10 +186,14 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
         setStatus('Connecting...');
 
         // Uses a short-lived, single-use ephemeral token minted server-side —
-        // the browser never sees the master Gemini API key.
-        const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${config.ephemeral_token}`;
+        // the browser never sees the master Gemini API key. Ephemeral tokens
+        // are only recognized on the v1alpha endpoint (the same API version
+        // used to mint them in /api/agent/[slug]/config) — v1beta rejects
+        // them with "API key not valid".
+        const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${config.ephemeral_token}`;
         console.log('[SovereignAgent] Connecting WebSocket...');
-        wsRef.current = new WebSocket(wsUrl);
+        const socket = new WebSocket(wsUrl);
+        wsRef.current = socket;
 
         // Track whether setup handshake is complete
         const setupCompleteRef = { current: false };
@@ -234,7 +238,7 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
             }));
         };
 
-        wsRef.current.onopen = () => {
+        socket.onopen = () => {
             // Step 1: ONLY send the setup message. Do NOT send audio or client content yet.
             // Native audio model ONLY supports responseModalities: ['AUDIO']
             // Text transcripts come via outputAudioTranscription / inputAudioTranscription
@@ -250,10 +254,15 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
                 }
             };
             console.log('[SovereignAgent] Sending setup message...');
-            wsRef.current.send(JSON.stringify(setupMsg));
+            // Bind to this exact socket instance (not the mutable wsRef) so a
+            // stale onopen from a superseded connection attempt can never
+            // fire send() against a different, still-CONNECTING socket.
+            if (socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify(setupMsg));
+            }
         };
 
-        wsRef.current.onmessage = async (event) => {
+        socket.onmessage = async (event) => {
             try {
                 let rawData = event.data;
                 if (rawData instanceof Blob) {
@@ -366,14 +375,20 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
             } catch (e) { console.error("[SovereignAgent] Message parse error:", e, event.data); }
         };
 
-        wsRef.current.onerror = (err) => {
+        socket.onerror = (err) => {
             console.error('[SovereignAgent] WebSocket error:', err);
             setStatus('Connection Error');
         };
-        wsRef.current.onclose = (event) => {
+        socket.onclose = (event) => {
             console.log('[SovereignAgent] WebSocket closed:', event.code, event.reason);
             setupCompleteRef.current = false;
-            if (active) stopAgent();
+            // Only clear the ref / stop the agent if this closing socket is
+            // still the active one — a late close from a superseded attempt
+            // shouldn't tear down a newer, already-connected session.
+            if (wsRef.current === socket) {
+                wsRef.current = null;
+                if (active) stopAgent();
+            }
         };
     };
 
