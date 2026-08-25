@@ -186,14 +186,17 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
         setStatus('Connecting...');
 
         // Uses a short-lived, single-use ephemeral token minted server-side —
-        // the browser never sees the master Gemini API key. Ephemeral tokens
-        // (resource names like "auth_tokens/...") are NOT static API keys:
-        // the `key=` param is checked against the static-API-key registry
-        // (hence "API key not valid" when an auth_tokens/... value is put
-        // there) — ephemeral tokens must go through `access_token=` instead,
-        // and only on the v1alpha endpoint (the API version used to mint
-        // them in /api/agent/[slug]/config).
-        const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?access_token=${config.ephemeral_token}`;
+        // the browser never sees the master Gemini API key. Per the official
+        // @google/genai SDK's own Live-connect logic (node_modules/@google/genai
+        // .../live.mjs): when the credential is an ephemeral token (resource
+        // name "auth_tokens/..."), it must hit the BidiGenerateContentConstrained
+        // RPC (not BidiGenerateContent) via `access_token=` (not `key=`), on
+        // v1alpha (the API version used to mint the token). Using the plain
+        // key/BidiGenerateContent combo with an ephemeral token 400s as
+        // "API key not valid"; using access_token against plain
+        // BidiGenerateContent 401s as "unregistered caller" — both RPC name
+        // and param must change together.
+        const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained?access_token=${config.ephemeral_token}`;
         console.log('[SovereignAgent] Connecting WebSocket...');
         const socket = new WebSocket(wsUrl);
         wsRef.current = socket;
