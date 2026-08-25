@@ -10,6 +10,7 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
     const [messages, setMessages] = useState([]);
     const [duration, setDuration] = useState(0);
     const [config, setConfig] = useState(null);
+    const [handoffRequested, setHandoffRequested] = useState(false);
 
     // Refs for holding mutable audio contexts and WebSockets without triggering re-renders
     const audioCtxRef = useRef(null);
@@ -29,13 +30,13 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
     const currentUserTextRef = useRef('');
     const chatEndRef = useRef(null);
 
-    const logConversation = async (role, text) => {
+    const logConversation = async (role, text, escalated = false) => {
         if (!text?.trim()) return;
         try {
             await fetch(`/api/agent/${slug}/log`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ role, text, channel: 'iframe' })
+                body: JSON.stringify({ role, text, channel: 'iframe', ...(escalated ? { escalated: true } : {}) })
             });
         } catch(e) { console.error("Log failed", e); }
     };
@@ -47,6 +48,7 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
             .replace(/\b(?:Thought|Thinking):\s*.+?(?=\n|$)/gi, '')
             .replace(/\[(EN|ES|FR|PT)\]/gi, '')
             .replace(/\[BOOK\]\s*(\{.*?\})?/gs, '')
+            .replace(/\[TRANSFER\]/gi, '')
             .trim();
     };
 
@@ -101,7 +103,8 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
     const finalizeAgentMessage = () => {
         const rawText = currentAgentTextRef.current;
         const cleanedText = cleanTranscript(rawText);
-        
+        const transferRequested = /\[TRANSFER\]/i.test(rawText);
+
         if (cleanedText) {
              setMessages(prev => {
                  if (prev.length === 0) return prev;
@@ -113,8 +116,17 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
                  }
                  return prev;
              });
-             logConversation('agent', cleanedText);
+             logConversation('agent', cleanedText, transferRequested);
         }
+
+        if (transferRequested) {
+            console.log('[SovereignAgent] Human handoff requested');
+            setHandoffRequested(true);
+            if (window.parent !== window) {
+                window.parent.postMessage({ type: 'TRANSFER_REQUESTED', payload: { phone: config?.phone_number || '' } }, '*');
+            }
+        }
+
         currentAgentTextRef.current = ''; // Reset for next turn
     };
 
@@ -210,6 +222,7 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
             setActive(true);
             setMessages([]);
             setDuration(0);
+            setHandoffRequested(false);
             
             timerRef.current = setInterval(() => setDuration(d => d + 1), 1000);
             drawViz();
@@ -550,6 +563,18 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
                     <div ref={chatEndRef} />
                 </div>
             </main>
+
+            {/* Human handoff banner — shown when the agent flags this conversation */}
+            {handoffRequested && (
+                <div className="z-10 px-4 py-2.5 bg-amber-500/10 border-t border-amber-500/20 text-amber-200 text-xs flex items-center justify-center gap-2 text-center">
+                    <span>This conversation has been flagged for our team to follow up.</span>
+                    {config?.phone_number && (
+                        <a href={`tel:${config.phone_number}`} className="underline font-semibold whitespace-nowrap">
+                            Call {config.phone_number} now
+                        </a>
+                    )}
+                </div>
+            )}
 
             {/* Mic Control Strip — compact at bottom, shrinks further when active */}
             <footer className={`z-10 border-t border-white/5 bg-obsidian/80 backdrop-blur-md flex flex-col items-center justify-center relative transition-all duration-300 ${

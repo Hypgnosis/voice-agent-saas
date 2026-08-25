@@ -40,6 +40,7 @@ export async function POST(request, { params }) {
             return NextResponse.json({ error: 'Text too long' }, { status: 413 });
         }
         const channel = ALLOWED_CHANNELS.has(data.channel) ? data.channel : 'iframe';
+        const escalated = data.escalated === true;
 
         // First find the business by slug (must be an active tenant)
         const bSnap = await adminDb.collection('businesses')
@@ -63,7 +64,8 @@ export async function POST(request, { params }) {
             business_slug: slug,
             caller_text: data.role === 'user' ? text : '',
             agent_text: data.role === 'agent' ? text : '',
-            channel
+            channel,
+            escalated
         };
 
         await adminDb.collection('call_logs').add(newLog);

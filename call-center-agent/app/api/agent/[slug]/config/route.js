@@ -53,6 +53,11 @@ export async function POST(request, { params }) {
             ? business.language
             : (isSpanishBusiness ? 'es-MX' : 'en-US');
 
+        const phoneNumber = business.phone_number || '';
+        const handoffInstruction = phoneNumber
+            ? `- If you can't help, or the caller asks for a human, say you'll flag it for the team and give them this direct number to reach out to right now: ${phoneNumber}.`
+            : `- If you can't help, or the caller asks for a human, tell them you've flagged this conversation and the team will follow up shortly. Do NOT invent a phone number or promise a live transfer — none exists.`;
+
         let systemPrompt = `You are a professional, friendly AI receptionist for ${business.name}.
 
 BUSINESS DESCRIPTION:
@@ -67,10 +72,14 @@ VOICE AGENT BOOKING SYSTEM:
 - Example: \"He agendado tu cita. [BOOK] {\"date\": \"2026-03-11T10:00:00-06:00\", \"type\": \"live\", \"symptoms\": \"Revisión\"}\"
 - NEVER mention the code \"[BOOK]\" out loud. It is a hidden system tag.
 
+HUMAN HANDOFF:
+${handoffInstruction}
+- You cannot actually transfer the call yourself — never say "transferring you now" or go silent waiting for a transfer to complete. Say your handoff line, then immediately output the tag [TRANSFER] at the very end of your response (after any spoken text).
+- NEVER mention the code "[TRANSFER]" out loud. It is a hidden system tag.
+
 RULES:
 - Keep answers brief, conversational, and natural.
 - Do NOT use emojis, markdown, or special formatting.
-- If you don't know something specific, politely offer to take a message or transfer to a human.
 - If the caller speaks Spanish, respond in Spanish. If in English, respond in English.
 `;
 
@@ -110,7 +119,8 @@ RULES:
         return NextResponse.json({
             ephemeral_token: token.name,
             model: LIVE_MODEL,
-            primary_lang: primaryLang
+            primary_lang: primaryLang,
+            phone_number: phoneNumber
         });
     } catch (e) {
         console.error('POST /api/agent/[slug]/config error:', e);

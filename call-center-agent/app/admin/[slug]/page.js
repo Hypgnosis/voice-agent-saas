@@ -331,6 +331,7 @@ export default function ClientDashboard({ params }) {
                                     <div className="flex items-center justify-between text-xs text-mercury/40 mb-1 border-b border-white/5 pb-2">
                                         <span>{new Date(log.timestamp).toLocaleString()}</span>
                                         <span className="uppercase tracking-widest text-[9px] bg-white/5 px-2 py-0.5 rounded-full">{log.channel}</span>
+                                        {log.escalated && <span className="uppercase tracking-widest text-[9px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full font-semibold">Needs Follow-up</span>}
                                     </div>
                                     {log.caller_text && <div className="flex flex-col items-end"><span className="text-[10px] uppercase text-mercury/40 mb-1">User</span><span className="text-sm bg-archytech-violet/20 text-archytech-violet px-3 py-2 rounded-xl rounded-tr-sm max-w-[85%]">{log.caller_text}</span></div>}
                                     {log.agent_text && <div className="flex flex-col items-start mt-2"><span className="text-[10px] uppercase text-mercury/40 mb-1">Agent</span><span className="text-sm bg-white/10 text-mercury px-3 py-2 rounded-xl rounded-tl-sm max-w-[85%]">{log.agent_text}</span></div>}
