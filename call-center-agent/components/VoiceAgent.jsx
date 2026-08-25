@@ -187,10 +187,13 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
 
         // Uses a short-lived, single-use ephemeral token minted server-side —
         // the browser never sees the master Gemini API key. Ephemeral tokens
-        // are only recognized on the v1alpha endpoint (the same API version
-        // used to mint them in /api/agent/[slug]/config) — v1beta rejects
-        // them with "API key not valid".
-        const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${config.ephemeral_token}`;
+        // (resource names like "auth_tokens/...") are NOT static API keys:
+        // the `key=` param is checked against the static-API-key registry
+        // (hence "API key not valid" when an auth_tokens/... value is put
+        // there) — ephemeral tokens must go through `access_token=` instead,
+        // and only on the v1alpha endpoint (the API version used to mint
+        // them in /api/agent/[slug]/config).
+        const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?access_token=${config.ephemeral_token}`;
         console.log('[SovereignAgent] Connecting WebSocket...');
         const socket = new WebSocket(wsUrl);
         wsRef.current = socket;
