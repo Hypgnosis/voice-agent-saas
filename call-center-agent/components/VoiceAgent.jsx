@@ -184,8 +184,10 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
         processorRef.current.connect(audioCtxRef.current.destination);
 
         setStatus('Connecting...');
-        
-        const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${config.gemini_api_key}`;
+
+        // Uses a short-lived, single-use ephemeral token minted server-side —
+        // the browser never sees the master Gemini API key.
+        const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${config.ephemeral_token}`;
         console.log('[SovereignAgent] Connecting WebSocket...');
         wsRef.current = new WebSocket(wsUrl);
 
@@ -236,16 +238,13 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
             // Step 1: ONLY send the setup message. Do NOT send audio or client content yet.
             // Native audio model ONLY supports responseModalities: ['AUDIO']
             // Text transcripts come via outputAudioTranscription / inputAudioTranscription
+            // Note: model/systemInstruction/responseModalities are locked into the
+            // ephemeral token server-side (see /api/agent/[slug]/config) — any values
+            // sent here for those locked fields are ignored by the API, so we don't
+            // need (and never receive) the raw system prompt on the client.
             const setupMsg = {
                 setup: {
-                    model: 'models/gemini-2.5-flash-native-audio-latest',
-                    generationConfig: {
-                        responseModalities: ['AUDIO'],
-                        speechConfig: {
-                            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Puck' } }
-                        }
-                    },
-                    systemInstruction: { parts: [{ text: config.system_prompt }] },
+                    model: config.model,
                     outputAudioTranscription: {},
                     inputAudioTranscription: {}
                 }

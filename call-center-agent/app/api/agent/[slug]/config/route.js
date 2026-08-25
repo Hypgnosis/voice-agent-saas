@@ -1,7 +1,13 @@
 import { NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase/admin';
+import { GoogleGenAI } from '@google/genai';
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 
 export const dynamic = 'force-dynamic';
+
+const LIVE_MODEL = 'models/gemini-2.5-flash-native-audio-latest';
+
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 export async function POST(request, { params }) {
     try {
@@ -15,9 +21,16 @@ export async function POST(request, { params }) {
 
         const resolvedParams = await params;
         const slug = resolvedParams.slug;
+
+        // Public, unauthenticated endpoint (called by the embed widget) — rate
+        // limit per-IP per-slug so it can't be used to mint unlimited tokens.
+        const ip = getClientIp(request);
+        const { success } = await checkRateLimit(`config:${slug}:${ip}`);
+        if (!success) {
+            return NextResponse.json({ error: 'Too many requests. Please try again shortly.' }, { status: 429 });
+        }
+
         const data = await request.json().catch(() => ({}));
-        
-        const mode = data.mode || "customer";
         const parentInstructions = data.parent_app_instructions || "";
 
         // Query Firestore for business config
@@ -36,8 +49,8 @@ export async function POST(request, { params }) {
         // Build the system prompt using the metadata
         const isSpanishBusiness = (business.language && business.language.startsWith('es')) ||
             (business.greeting && /[ñáéíóúü¿¡]/i.test(business.greeting));
-        const primaryLang = business.language && business.language !== 'auto' 
-            ? business.language 
+        const primaryLang = business.language && business.language !== 'auto'
+            ? business.language
             : (isSpanishBusiness ? 'es-MX' : 'en-US');
 
         let systemPrompt = `You are a professional, friendly AI receptionist for ${business.name}.
@@ -65,13 +78,42 @@ RULES:
             systemPrompt += `\n\n=== PARENT APP INSTRUCTIONS (MANDATORY OVERRIDE) ===\n${parentInstructions}\n====================================================\n`;
         }
 
+        // ─────────────────────────────────────────────────────────────────
+        // SECURITY: never send the master GEMINI_API_KEY to the browser.
+        // Mint a short-lived, single-use, config-locked ephemeral token
+        // instead. `liveConnectConstraints` + `lockAdditionalFields: []`
+        // bakes the model and system prompt into the token itself, so a
+        // captured token can start exactly one Live session with THIS
+        // business's exact configuration — it can't be replayed against a
+        // different prompt/model, reused for a second session, or used for
+        // any non-Live Gemini API call.
+        // ─────────────────────────────────────────────────────────────────
+        const liveConfig = {
+            responseModalities: ['AUDIO'],
+            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Puck' } } },
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+            outputAudioTranscription: {},
+            inputAudioTranscription: {}
+        };
+
+        const token = await ai.authTokens.create({
+            config: {
+                uses: 1,
+                newSessionExpireTime: new Date(Date.now() + 60 * 1000).toISOString(), // must open the WS within 60s
+                expireTime: new Date(Date.now() + 30 * 60 * 1000).toISOString(), // session hard-closes after 30 min
+                liveConnectConstraints: { model: LIVE_MODEL, config: liveConfig },
+                lockAdditionalFields: [],
+                httpOptions: { apiVersion: 'v1alpha' }
+            }
+        });
+
         return NextResponse.json({
-            system_prompt: systemPrompt,
-            gemini_api_key: process.env.GEMINI_API_KEY,
+            ephemeral_token: token.name,
+            model: LIVE_MODEL,
             primary_lang: primaryLang
         });
     } catch (e) {
         console.error('POST /api/agent/[slug]/config error:', e);
-        return NextResponse.json({ error: "Internal Server Error", details: e.message }, { status: 500 });
+        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
     }
 }

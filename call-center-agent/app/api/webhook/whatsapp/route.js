@@ -7,6 +7,7 @@ import { dispatchToolCall } from '@/lib/tools/calendarFunctions';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import { Readable, PassThrough } from 'stream';
+import crypto from 'crypto';
 
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
@@ -14,8 +15,27 @@ export const dynamic = 'force-dynamic';
 
 const META_VERIFY_TOKEN = process.env.META_VERIFY_TOKEN;
 const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
+const META_APP_SECRET = process.env.META_APP_SECRET;
 const OPENCLAW_URL = process.env.OPENCLAW_URL || 'http://127.0.0.1:3000/api/v1/tasks';
 const GATEWAY_TOKEN = process.env.GATEWAY_TOKEN;
+
+// Verifies the raw request body against Meta's X-Hub-Signature-256 header
+// using the app secret. Fails closed: unset secret => reject everything.
+function verifyMetaSignature(rawBody, signatureHeader) {
+    if (!META_APP_SECRET) {
+        console.error('❌ META_APP_SECRET not configured — rejecting all webhook traffic.');
+        return false;
+    }
+    if (!signatureHeader || !signatureHeader.startsWith('sha256=')) return false;
+
+    const expectedHex = crypto.createHmac('sha256', META_APP_SECRET).update(rawBody, 'utf8').digest('hex');
+    const providedHex = signatureHeader.slice('sha256='.length);
+
+    const expected = Buffer.from(expectedHex, 'hex');
+    const provided = Buffer.from(providedHex, 'hex');
+    if (expected.length !== provided.length) return false;
+    return crypto.timingSafeEqual(expected, provided);
+}
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -205,7 +225,17 @@ export async function GET(request) {
 // 2. INCOMING WHATSAPP MESSAGE (POST) — Multi-tenant via phone_number_id
 export async function POST(request) {
     try {
-        const data = await request.json();
+        // Read the raw bytes FIRST — signature verification must run over the
+        // exact bytes Meta signed, before any JSON parsing.
+        const rawBody = await request.text();
+        const signature = request.headers.get('x-hub-signature-256');
+
+        if (!verifyMetaSignature(rawBody, signature)) {
+            console.error('❌ WhatsApp webhook signature verification failed. Rejecting request.');
+            return new Response('Forbidden', { status: 403 });
+        }
+
+        const data = JSON.parse(rawBody);
 
         // KILL SWITCH: Ignore Meta's read/delivered receipts
         if (data.entry?.[0]?.changes?.[0]?.value?.statuses) {

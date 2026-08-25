@@ -1,10 +1,16 @@
 import { NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase/admin';
+import { verifySession, handleAuthError } from '@/lib/auth/verifySession';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST() {
+export async function POST(request) {
     try {
+        const session = await verifySession(request);
+        if (session.role !== 'admin') {
+            return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+        }
+
         if (!adminDb) {
             return NextResponse.json({ error: 'Firebase not configured. Set FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, and FIREBASE_PRIVATE_KEY.' }, { status: 503 });
         }
@@ -60,7 +66,8 @@ FAQ & OBJECTIONS:
 
         return NextResponse.json({ success: true, message: "Aethos agent seeded successfully" });
     } catch (e) {
+        if (e.isAuthError) return handleAuthError(e);
         console.error('POST /api/setup error:', e);
-        return NextResponse.json({ error: 'Database error', details: e.message }, { status: 500 });
+        return NextResponse.json({ error: 'Database error' }, { status: 500 });
     }
 }

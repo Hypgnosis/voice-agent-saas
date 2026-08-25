@@ -34,3 +34,17 @@ export const rateLimiter = isRedisConfigured
 export async function checkRateLimit(identifier) {
     return await rateLimiter.limit(identifier);
 }
+
+/**
+ * Best-effort client IP extraction behind Netlify/CDN proxies, for rate-limiting
+ * public/unauthenticated endpoints. Not for security-critical identity decisions.
+ * @param {Request} request
+ * @returns {string}
+ */
+export function getClientIp(request) {
+    const forwarded = request.headers.get('x-forwarded-for');
+    if (forwarded) return forwarded.split(',')[0].trim();
+    return request.headers.get('x-nf-client-connection-ip')
+        || request.headers.get('x-real-ip')
+        || 'unknown';
+}

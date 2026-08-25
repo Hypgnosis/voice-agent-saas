@@ -1,8 +1,12 @@
 import { NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase/admin';
 import { v4 as uuidv4 } from 'uuid';
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 
 export const dynamic = 'force-dynamic';
+
+const ALLOWED_CHANNELS = new Set(['iframe', 'web']);
+const MAX_TEXT_LENGTH = 4000;
 
 export async function POST(request, { params }) {
     try {
@@ -10,16 +14,37 @@ export async function POST(request, { params }) {
             return NextResponse.json({ error: 'Firebase not configured' }, { status: 503 });
         }
 
-        const slug = params.slug || (await params).slug;
-        const data = await request.json();
-
+        const resolvedParams = await params;
+        const slug = resolvedParams.slug;
         if (!slug) {
-             return NextResponse.json({ error: 'Missing slug' }, { status: 400 });
+            return NextResponse.json({ error: 'Missing slug' }, { status: 400 });
         }
 
-        // First find the business by slug
+        // Public, unauthenticated endpoint (called by the embed widget) —
+        // rate limit per-IP per-slug so it can't be used to spam call_logs.
+        const ip = getClientIp(request);
+        const { success } = await checkRateLimit(`log:${slug}:${ip}`);
+        if (!success) {
+            return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
+        }
+
+        const data = await request.json().catch(() => ({}));
+
+        if (data.role !== 'user' && data.role !== 'agent') {
+            return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
+        }
+        if (typeof data.text !== 'string' || !data.text.trim()) {
+            return NextResponse.json({ error: 'Missing text' }, { status: 400 });
+        }
+        if (data.text.length > MAX_TEXT_LENGTH) {
+            return NextResponse.json({ error: 'Text too long' }, { status: 413 });
+        }
+        const channel = ALLOWED_CHANNELS.has(data.channel) ? data.channel : 'iframe';
+
+        // First find the business by slug (must be an active tenant)
         const bSnap = await adminDb.collection('businesses')
             .where('slug', '==', slug)
+            .where('active', '==', true)
             .limit(1)
             .get();
 
@@ -30,28 +55,15 @@ export async function POST(request, { params }) {
         const business = bSnap.docs[0];
         const bid = business.id;
 
-        // the frontend sends { role: 'user' | 'agent', text: '...', channel: 'iframe' }
-        // Let's create a new log or append to the last one.
-        // For simplicity, let's create a new log per turn or match it roughly if possible
-        
-        let caller_text = '';
-        let agent_text = '';
-        
-        if (data.role === 'user') {
-            caller_text = data.text;
-        } else if (data.role === 'agent') {
-            agent_text = data.text;
-        }
-
-        // we could just append to collection
+        const text = data.text.trim();
         const newLog = {
             id: uuidv4(),
             timestamp: new Date().toISOString(),
             business_id: bid,
             business_slug: slug,
-            caller_text: caller_text,
-            agent_text: agent_text,
-            channel: data.channel || 'web'
+            caller_text: data.role === 'user' ? text : '',
+            agent_text: data.role === 'agent' ? text : '',
+            channel
         };
 
         await adminDb.collection('call_logs').add(newLog);
@@ -60,6 +72,6 @@ export async function POST(request, { params }) {
 
     } catch (e) {
         console.error('POST /api/agent/[slug]/log error:', e);
-        return NextResponse.json({ error: 'Database error', details: e.message }, { status: 500 });
+        return NextResponse.json({ error: 'Database error' }, { status: 500 });
     }
 }
