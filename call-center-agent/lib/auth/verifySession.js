@@ -34,7 +34,9 @@ export async function verifySession(request) {
         const decodedToken = await adminAuth.verifyIdToken(idToken, true); // checkRevoked = true
 
         // Fetch user role and tenant associations from Firestore
-        const userDoc = await adminDb.collection('users').doc(decodedToken.uid).get();
+        // Collection is "Users" (capital U) as created in Firestore — case
+        // matters, this is the only place in the codebase that reads it.
+        const userDoc = await adminDb.collection('Users').doc(decodedToken.uid).get();
 
         let role = 'client'; // Default: least privilege
         let tenant_ids = [];
