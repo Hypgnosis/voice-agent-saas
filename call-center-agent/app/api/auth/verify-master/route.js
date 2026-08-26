@@ -8,6 +8,11 @@
 import { NextResponse } from 'next/server';
 import { verifySession, handleAuthError } from '@/lib/auth/verifySession';
 
+// Every other auth-sensitive route declares this; this one didn't, which
+// let Netlify's edge/durable cache serve a stale response (observed:
+// identical 403 across requests, Vary header missing Authorization).
+export const dynamic = 'force-dynamic';
+
 export async function POST(request) {
     try {
         const session = await verifySession(request);
