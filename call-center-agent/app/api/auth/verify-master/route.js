@@ -13,8 +13,16 @@ export async function POST(request) {
         const session = await verifySession(request);
 
         if (session.role !== 'admin') {
+            // TEMPORARY DIAGNOSTIC — remove once the role-check mismatch is
+            // resolved. Exposes only the caller's own already-verified
+            // uid/role/email back to themselves, nothing sensitive.
             return NextResponse.json(
-                { error: 'Insufficient privileges — admin role required' },
+                {
+                    error: 'Insufficient privileges — admin role required',
+                    debug_uid: session.uid,
+                    debug_role_seen_by_server: session.role,
+                    debug_email: session.email,
+                },
                 { status: 403 }
             );
         }
