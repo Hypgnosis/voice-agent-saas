@@ -499,9 +499,16 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
 
     const formatTime = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
-    // Auto-scroll chat to bottom when messages update
+    // Auto-scroll chat to bottom when messages update.
+    // Guarded against the empty-state mount: scrollIntoView's default
+    // block:'center' can't be satisfied inside the (too-short) chat list,
+    // so it cascades the scroll attempt up to the outer h-screen container
+    // — which still accepts programmatic scrollTop despite overflow-hidden
+    // — pushing the header off the top of the viewport on first load.
+    // block:'nearest' avoids repositioning anything that's already in view.
     useEffect(() => {
-        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        if (messages.length === 0) return;
+        chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }, [messages]);
 
     return (
