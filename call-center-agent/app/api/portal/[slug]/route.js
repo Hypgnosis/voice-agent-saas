@@ -30,7 +30,12 @@ const ALLOWED_INTEGRATION_KEYS = {
     calendar_api_key: sanitizeString,
     calendar_id: sanitizeString,
     event_type_id: sanitizeEventTypeId,
+    gemini_api_key: sanitizeString,
+    whatsapp_access_token: sanitizeString,
 };
+
+// Keys that must be vault-encrypted before persistence.
+const ENCRYPTED_INTEGRATION_KEYS = new Set(['calendar_api_key', 'gemini_api_key', 'whatsapp_access_token']);
 
 // ─── Tenant Resolution ──────────────────────────────────────────────────────
 /**
@@ -77,14 +82,12 @@ export async function GET(request, { params }) {
         const { doc, data } = await resolveOwnedBusiness(slug, session);
 
         // Return ONLY what the client dashboard needs
-        // NEVER return raw secrets — mask the calendar_api_key
-        const calendarApiKey = data.integrations?.calendar_api_key || '';
-        let maskedKey = '';
-        if (calendarApiKey) {
-            // If it's encrypted, decrypt first then mask for display
-            const raw = isEncrypted(calendarApiKey) ? decrypt(calendarApiKey) : calendarApiKey;
-            maskedKey = mask(raw);
-        }
+        // NEVER return raw secrets — mask every sensitive credential
+        const maskCredential = (rawStored) => {
+            if (!rawStored) return '';
+            const raw = isEncrypted(rawStored) ? decrypt(rawStored) : rawStored;
+            return mask(raw);
+        };
 
         return NextResponse.json({
             id: doc.id,
@@ -94,10 +97,13 @@ export async function GET(request, { params }) {
             greeting: data.greeting || '',
             knowledge_base: data.knowledge_base || '',
             timezone: data.timezone || 'America/Merida',
+            whatsapp_number_id: data.whatsapp_number_id || '',
             integrations: {
-                calendar_api_key_masked: maskedKey,
+                calendar_api_key_masked: maskCredential(data.integrations?.calendar_api_key),
                 calendar_id: data.integrations?.calendar_id || '',
                 event_type_id: data.integrations?.event_type_id || '',
+                gemini_api_key_masked: maskCredential(data.integrations?.gemini_api_key),
+                whatsapp_access_token_masked: maskCredential(data.integrations?.whatsapp_access_token),
             },
             active: data.active ?? true,
         });
@@ -140,7 +146,7 @@ export async function PUT(request, { params }) {
                     let value = sanitizer(body.integrations[key]);
 
                     // Encrypt sensitive keys before persisting
-                    if (key === 'calendar_api_key' && value) {
+                    if (ENCRYPTED_INTEGRATION_KEYS.has(key) && value) {
                         value = encrypt(value);
                     }
 

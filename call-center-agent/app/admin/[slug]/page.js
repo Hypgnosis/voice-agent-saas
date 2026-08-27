@@ -123,6 +123,8 @@ export default function ClientDashboard({ params }) {
                         calendar_api_key: business.integrations?.calendar_api_key || '',
                         calendar_id: business.integrations?.calendar_id || '',
                         event_type_id: business.integrations?.event_type_id || '',
+                        gemini_api_key: business.integrations?.gemini_api_key || '',
+                        whatsapp_access_token: business.integrations?.whatsapp_access_token || '',
                     },
                 }),
             });
@@ -248,6 +250,44 @@ export default function ClientDashboard({ params }) {
                     <h3 className="text-xs uppercase tracking-widest text-mercury/50 font-semibold mb-4">Knowledge Base</h3>
                     <p className="text-xs text-mercury/40 mb-3">This is the brain of your agent. Paste all information: services, prices, hours, FAQs, scripts.</p>
                     <textarea rows={14} value={business?.knowledge_base || ''} onChange={(e) => handleChange('knowledge_base', e.target.value)} className={IC + " resize-none font-mono text-xs"} />
+                </div>
+
+                {/* WhatsApp Integration */}
+                <div className="clinical-panel p-6 space-y-4">
+                    <h3 className="text-xs uppercase tracking-widest text-mercury/50 font-semibold mb-4">WhatsApp Integration</h3>
+                    <div>
+                        <p className="text-[10px] text-mercury/40 uppercase tracking-wider mb-1">Meta Phone Number ID</p>
+                        <p className="text-sm font-mono text-mercury/70">{business?.whatsapp_number_id || 'Not linked yet — contact your administrator.'}</p>
+                    </div>
+                    <div>
+                        <label className={LC}>WhatsApp Access Token (your own)</label>
+                        <div className="relative">
+                            <KeyRound size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
+                            <input type="password" value={business?.integrations?.whatsapp_access_token || ''} onChange={(e) => handleIntegrationChange('whatsapp_access_token', e.target.value)} placeholder={business?.integrations?.whatsapp_access_token_masked || 'EAAG...'} className={IC + " pl-9 font-mono"} />
+                        </div>
+                        <p className="text-[10px] text-mercury/30 mt-1">
+                            {business?.integrations?.whatsapp_access_token_masked
+                                ? `Current token: ${business.integrations.whatsapp_access_token_masked} — enter a new value to replace.`
+                                : 'Not configured — messages currently send under the platform default. Enter your own Meta access token to bill/rate-limit under your own account.'}
+                        </p>
+                    </div>
+                </div>
+
+                {/* AI Credentials */}
+                <div className="clinical-panel p-6 space-y-4">
+                    <h3 className="text-xs uppercase tracking-widest text-mercury/50 font-semibold mb-4">AI Credentials</h3>
+                    <div>
+                        <label className={LC}>Gemini API Key (your own)</label>
+                        <div className="relative">
+                            <KeyRound size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
+                            <input type="password" value={business?.integrations?.gemini_api_key || ''} onChange={(e) => handleIntegrationChange('gemini_api_key', e.target.value)} placeholder={business?.integrations?.gemini_api_key_masked || 'AIzaSy...'} className={IC + " pl-9 font-mono"} />
+                        </div>
+                        <p className="text-[10px] text-mercury/30 mt-1">
+                            {business?.integrations?.gemini_api_key_masked
+                                ? `Current key: ${business.integrations.gemini_api_key_masked} — enter a new value to replace.`
+                                : 'Not configured — inference currently runs under the platform default. Enter your own Gemini API key to bill/rate-limit under your own account.'}
+                        </p>
+                    </div>
                 </div>
 
                 {/* Calendar Integrations */}
