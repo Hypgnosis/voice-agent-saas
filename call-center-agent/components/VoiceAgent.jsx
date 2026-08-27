@@ -524,7 +524,7 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
                         <Mic size={16} />
                     </div>
                     <div>
-                        <h1 className="text-sm font-semibold tracking-wide">Sovereign Agent</h1>
+                        <h1 className="text-sm font-semibold tracking-wide">{config?.business_name || 'Voice Agent'}</h1>
                     </div>
                 </div>
                 <div className="flex items-center gap-3">

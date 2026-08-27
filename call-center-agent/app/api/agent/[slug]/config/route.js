@@ -139,7 +139,8 @@ RULES:
             ephemeral_token: token.name,
             model: LIVE_MODEL,
             primary_lang: primaryLang,
-            phone_number: phoneNumber
+            phone_number: phoneNumber,
+            business_name: business.name || ''
         });
     } catch (e) {
         console.error('POST /api/agent/[slug]/config error:', e);
