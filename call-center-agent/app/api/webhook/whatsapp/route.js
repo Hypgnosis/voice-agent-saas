@@ -4,6 +4,7 @@ import { GoogleGenAI } from '@google/genai';
 import { v4 as uuidv4 } from 'uuid';
 import { isInternalAgent, getInternalSystemPrompt, getInternalToolDeclarations } from '@/lib/tools/internalAgentTools';
 import { dispatchToolCall } from '@/lib/tools/calendarFunctions';
+import { decrypt, isEncrypted } from '@/lib/crypto/vault';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import { Readable, PassThrough } from 'stream';
@@ -14,7 +15,8 @@ ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 export const dynamic = 'force-dynamic';
 
 const META_VERIFY_TOKEN = process.env.META_VERIFY_TOKEN;
-const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
+const PLATFORM_META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
+const PLATFORM_GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const META_APP_SECRET = process.env.META_APP_SECRET;
 const OPENCLAW_URL = process.env.OPENCLAW_URL || 'http://127.0.0.1:3000/api/v1/tasks';
 const GATEWAY_TOKEN = process.env.GATEWAY_TOKEN;
@@ -37,15 +39,44 @@ function verifyMetaSignature(rawBody, signatureHeader) {
     return crypto.timingSafeEqual(expected, provided);
 }
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// ─── Per-tenant credential resolution ───────────────────────────────────────
+// Each business may bring its own Gemini API key and WhatsApp access token
+// (billed/rate-limited under their own accounts) via the vault-encrypted
+// business.integrations fields. Falls back to the platform's own keys for
+// tenants who haven't configured their own yet.
+function resolveGeminiKey(business) {
+    let key = business?.integrations?.gemini_api_key || '';
+    if (key && isEncrypted(key)) {
+        try {
+            key = decrypt(key);
+        } catch (e) {
+            console.error('Failed to decrypt gemini_api_key for tenant, falling back to platform key:', e.message);
+            key = '';
+        }
+    }
+    return key || PLATFORM_GEMINI_API_KEY || '';
+}
 
-async function sendWhatsAppMessage(phoneNumberId, toNumber, text) {
-    if (!META_ACCESS_TOKEN) return;
+function resolveWhatsAppToken(business) {
+    let token = business?.integrations?.whatsapp_access_token || '';
+    if (token && isEncrypted(token)) {
+        try {
+            token = decrypt(token);
+        } catch (e) {
+            console.error('Failed to decrypt whatsapp_access_token for tenant, falling back to platform token:', e.message);
+            token = '';
+        }
+    }
+    return token || PLATFORM_META_ACCESS_TOKEN || '';
+}
+
+async function sendWhatsAppMessage(phoneNumberId, toNumber, text, accessToken) {
+    if (!accessToken) return;
     const url = `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`;
     try {
         await fetch(url, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${META_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
+            headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({ messaging_product: 'whatsapp', to: toNumber, type: 'text', text: { body: text } })
         });
     } catch (e) {
@@ -58,10 +89,10 @@ async function triggerOpenClaw(patientPhone, bookData, conversationHistory) {
         console.warn("⚠️ OPENCLAW: Skipping handoff. GATEWAY_TOKEN not set.");
         return;
     }
-    
+
     const payload = {
         task: `A patient consultation just concluded on WhatsApp. You are the autonomous administrative backend.
-        
+
 1. Execute the 'calendar_tetris' skill to find a valid overlapping slot.
 2. Execute the 'whatsapp_notify' skill to proactively message the patient back with their confirmed slot.
 
@@ -96,26 +127,26 @@ ${conversationHistory.map(msg => `${msg.role}: ${msg.parts[0].text}`).join('\n')
 // NEW VOICE PIPELINE (Gemini Native Audio)
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function downloadWhatsAppMedia(mediaId) {
-    if (!META_ACCESS_TOKEN) throw new Error("META_ACCESS_TOKEN not set");
-    
+async function downloadWhatsAppMedia(mediaId, accessToken) {
+    if (!accessToken) throw new Error("No WhatsApp access token available for this tenant");
+
     // 1. Get Media URL
     const urlRes = await fetch(`https://graph.facebook.com/v18.0/${mediaId}`, {
-        headers: { 'Authorization': `Bearer ${META_ACCESS_TOKEN}` }
+        headers: { 'Authorization': `Bearer ${accessToken}` }
     });
     const urlData = await urlRes.json();
     if (!urlData.url) throw new Error("Could not retrieve media URL from Meta.");
-    
+
     // 2. Download Raw Audio
     const mediaRes = await fetch(urlData.url, {
-        headers: { 'Authorization': `Bearer ${META_ACCESS_TOKEN}` }
+        headers: { 'Authorization': `Bearer ${accessToken}` }
     });
-    
+
     const arrayBuffer = await mediaRes.arrayBuffer();
     return Buffer.from(arrayBuffer).toString('base64');
 }
 
-async function uploadToFirebaseAndSend(audioBuffer, phoneNumberId, patientPhone) {
+async function uploadToFirebaseAndSend(audioBuffer, phoneNumberId, patientPhone, accessToken) {
     try {
         if (!adminStorage) throw new Error("Firebase Admin Storage not initialized");
         const bucketName = process.env.FIREBASE_STORAGE_BUCKET;
@@ -181,7 +212,7 @@ async function uploadToFirebaseAndSend(audioBuffer, phoneNumberId, patientPhone)
 
         const res = await fetch(url, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${META_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
+            headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
 
@@ -208,7 +239,7 @@ export async function GET(request) {
 
     if (mode === "subscribe" && token === expectedToken) {
         console.log("✅ Meta Webhook verified successfully.");
-        
+
         // Meta strictly requires a raw Response with text/plain (NOT NextResponse)
         return new Response(challenge, {
             status: 200,
@@ -252,13 +283,43 @@ export async function POST(request) {
         const entry = data.entry?.[0] || {};
         const changes = entry.changes?.[0] || {};
         const value = changes.value || {};
-        
+
         // THIS IS THE CRITICAL KEY FOR MULTI-TENANT ROUTING
         const phoneNumberId = value.metadata?.phone_number_id;
 
         const message = value.messages[0];
         const patientPhone = message.from;
-        
+
+        // 🚀 MULTI-TENANT QUERY: Find the business by their WhatsApp Phone Number ID.
+        // Moved ahead of any Meta API calls (media download, replies) so we
+        // resolve this tenant's OWN Gemini key + WhatsApp token before ever
+        // making an outbound request on their behalf.
+        const bSnap = await adminDb.collection('businesses')
+            .where('whatsapp_number_id', '==', phoneNumberId)
+            .where('active', '==', true)
+            .limit(1)
+            .get();
+
+        if (bSnap.empty) {
+            console.error(`❌ Unrecognized WhatsApp Number ID: ${phoneNumberId}`);
+            return NextResponse.json({ error: "Business not configured for this number." }, { status: 404 });
+        }
+
+        const businessDoc = bSnap.docs[0];
+        const business = businessDoc.data();
+        const bid = businessDoc.id;
+        const slug = business.slug;
+
+        const accessToken = resolveWhatsAppToken(business);
+        const geminiKey = resolveGeminiKey(business);
+
+        if (!geminiKey) {
+            console.error(`❌ No Gemini API key available for tenant "${slug}" (neither tenant-configured nor platform default).`);
+            return NextResponse.json({ error: "AI not configured for this business." }, { status: 503 });
+        }
+
+        const ai = new GoogleGenAI({ apiKey: geminiKey });
+
         let userText = "";
         let isAudioIncoming = false;
         let base64Audio = null;
@@ -266,7 +327,7 @@ export async function POST(request) {
 
         // 1. Candado dinámico: Rechazar lo que NO sea texto, audio o voice (ej. imágenes, stickers)
         if (message.type !== "text" && message.type !== "audio" && message.type !== "voice") {
-            await sendWhatsAppMessage(phoneNumberId, patientPhone, "Lo siento, por ahora solo puedo procesar texto y notas de voz.");
+            await sendWhatsAppMessage(phoneNumberId, patientPhone, "Lo siento, por ahora solo puedo procesar texto y notas de voz.", accessToken);
             return NextResponse.json({ status: "media_ignored" }, { status: 200 });
         }
 
@@ -279,34 +340,17 @@ export async function POST(request) {
                 // Extraer el ID correcto de la nota de voz o archivo de audio
                 const mediaId = message.type === "voice" ? message.voice.id : message.audio.id;
                 mimeType = message.type === "voice" ? message.voice.mime_type : message.audio.mime_type;
-                
+
                 console.log(`🎙️ Audio/Voice message received (${mediaId}). Downloading...`);
-                base64Audio = await downloadWhatsAppMedia(mediaId);
+                base64Audio = await downloadWhatsAppMedia(mediaId, accessToken);
                 console.log(`✅ Audio downloaded and encoded to base64.`);
                 userText = "[Voice note received]";
             } catch (err) {
                 console.error("❌ Failed to process incoming audio:", err);
-                await sendWhatsAppMessage(phoneNumberId, patientPhone, "Lo siento, tuve un problema escuchando tu mensaje de voz. ¿Podrías escribirlo?");
+                await sendWhatsAppMessage(phoneNumberId, patientPhone, "Lo siento, tuve un problema escuchando tu mensaje de voz. ¿Podrías escribirlo?", accessToken);
                 return NextResponse.json({ status: "audio_failed" }, { status: 200 });
             }
         }
-
-        // 🚀 MULTI-TENANT QUERY: Find the business by their WhatsApp Phone Number ID
-        const bSnap = await adminDb.collection('businesses')
-            .where('whatsapp_number_id', '==', phoneNumberId)
-            .where('active', '==', true)
-            .limit(1)
-            .get();
-
-        if (bSnap.empty) {
-            console.error(`❌ Unrecognized WhatsApp Number ID: ${phoneNumberId}`);
-            return NextResponse.json({ error: "Business not configured for this number." }, { status: 404 });
-        }
-        
-        const businessDoc = bSnap.docs[0];
-        const business = businessDoc.data();
-        const bid = businessDoc.id;
-        const slug = business.slug;
 
         // Fetch Conversation History for this specific patient
         const logsSnap = await adminDb.collection('call_logs')
@@ -325,19 +369,19 @@ export async function POST(request) {
 
         // Construir el payload dinámico para Gemini
         const userParts = [];
-        
+
         // Si hay texto, lo agregamos
         if (userText && userText.trim() !== "") {
             userParts.push({ text: userText });
         }
-        
+
         // Si hay audio en Base64, lo agregamos
         if (base64Audio) {
-            userParts.push({ 
-                inlineData: { 
+            userParts.push({
+                inlineData: {
                     mimeType: mimeType || "audio/ogg", // Fallback por si acaso
-                    data: base64Audio 
-                } 
+                    data: base64Audio
+                }
             });
         }
 
@@ -356,9 +400,9 @@ export async function POST(request) {
         let agentResult;
 
         if (isInternalAgent(slug)) {
-            agentResult = await handleInternalAgent(business, history, isAudioIncoming);
+            agentResult = await handleInternalAgent(business, history, isAudioIncoming, ai);
         } else {
-            agentResult = await handleStandardAgent(business, history, patientPhone, phoneNumberId, isAudioIncoming);
+            agentResult = await handleStandardAgent(business, history, patientPhone, phoneNumberId, isAudioIncoming, ai);
         }
 
         const cleanText = agentResult.text;
@@ -386,13 +430,13 @@ export async function POST(request) {
         if (isAudioIncoming && replyAudioBuffer) {
             try {
                 console.log(`📤 Uploading and sending audio reply...`);
-                await uploadToFirebaseAndSend(replyAudioBuffer, phoneNumberId, patientPhone);
+                await uploadToFirebaseAndSend(replyAudioBuffer, phoneNumberId, patientPhone, accessToken);
             } catch (err) {
                 console.error("❌ Failed to upload/send audio, falling back to text:", err);
-                await sendWhatsAppMessage(phoneNumberId, patientPhone, cleanText || "Error processing voice note.");
+                await sendWhatsAppMessage(phoneNumberId, patientPhone, cleanText || "Error processing voice note.", accessToken);
             }
         } else if (cleanText) {
-            await sendWhatsAppMessage(phoneNumberId, patientPhone, cleanText);
+            await sendWhatsAppMessage(phoneNumberId, patientPhone, cleanText, accessToken);
         }
 
         return NextResponse.json({ status: "success" }, { status: 200 });
@@ -407,13 +451,13 @@ export async function POST(request) {
 // ═══════════════════════════════════════════════════════════════════════════
 // INTERNAL AGENT — Two-trip Function Calling for Dra. Mya
 // ═══════════════════════════════════════════════════════════════════════════
-async function handleInternalAgent(business, history, isAudioIncoming) {
+async function handleInternalAgent(business, history, isAudioIncoming, ai) {
     const timezone = business.timezone || 'America/Merida';
     const systemPrompt = getInternalSystemPrompt(business, timezone);
     const toolDeclarations = getInternalToolDeclarations();
 
     console.log('🩺 Internal Agent activated — Function Calling mode');
-    
+
     // Hop 1: THE BRAIN (Logic and Function Calling)
     const config = {
         systemInstruction: systemPrompt,
@@ -503,7 +547,7 @@ async function handleInternalAgent(business, history, isAudioIncoming) {
 // ═══════════════════════════════════════════════════════════════════════════
 // STANDARD AGENT — Original multi-tenant receptionist (unchanged logic)
 // ═══════════════════════════════════════════════════════════════════════════
-async function handleStandardAgent(business, history, patientPhone, phoneNumberId, isAudioIncoming) {
+async function handleStandardAgent(business, history, patientPhone, phoneNumberId, isAudioIncoming, ai) {
     const systemPrompt = `You are a professional, friendly AI receptionist for ${business.name}.
 BUSINESS DESCRIPTION: ${business.description}
 KNOWLEDGE BASE: ${business.knowledge_base}
@@ -537,13 +581,13 @@ RULES:
             bookData = JSON.parse(bookMatch[1]);
             console.log(`🚀 Booking Intent detected for ${patientPhone}:`, bookData);
             finalBrainText = finalBrainText.replace(/\[BOOK\]\s*\{.*?\}/gs, '').trim();
-            
+
             triggerOpenClaw(patientPhone, bookData, history).catch(console.error);
         } catch (e) {
             console.error("Failed to parse BOOK tag:", e);
         }
     }
-    
+
     finalBrainText = cleanResponse(finalBrainText);
 
     // Hop 2: THE VOICE (TTS)

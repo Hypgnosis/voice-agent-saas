@@ -2,21 +2,34 @@ import { NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase/admin';
 import { GoogleGenAI } from '@google/genai';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
+import { decrypt, isEncrypted } from '@/lib/crypto/vault';
 
 export const dynamic = 'force-dynamic';
 
 const LIVE_MODEL = 'models/gemini-2.5-flash-native-audio-latest';
+const PLATFORM_GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// Each business may bring its own Gemini API key (billed/rate-limited under
+// their own account) via the vault-encrypted integrations.gemini_api_key
+// field. Falls back to the platform's key for tenants who haven't
+// configured their own yet.
+function resolveGeminiKey(business) {
+    let key = business?.integrations?.gemini_api_key || '';
+    if (key && isEncrypted(key)) {
+        try {
+            key = decrypt(key);
+        } catch (e) {
+            console.error('Failed to decrypt gemini_api_key for tenant, falling back to platform key:', e.message);
+            key = '';
+        }
+    }
+    return key || PLATFORM_GEMINI_API_KEY || '';
+}
 
 export async function POST(request, { params }) {
     try {
         if (!adminDb) {
             return NextResponse.json({ error: 'Firebase not configured. Set FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, and FIREBASE_PRIVATE_KEY in your environment variables.' }, { status: 503 });
-        }
-
-        if (!process.env.GEMINI_API_KEY) {
-            return NextResponse.json({ error: 'GEMINI_API_KEY not configured in environment variables.' }, { status: 503 });
         }
 
         const resolvedParams = await params;
@@ -45,6 +58,12 @@ export async function POST(request, { params }) {
         }
 
         const business = snapshot.docs[0].data();
+
+        const geminiKey = resolveGeminiKey(business);
+        if (!geminiKey) {
+            return NextResponse.json({ error: 'AI not configured for this business.' }, { status: 503 });
+        }
+        const ai = new GoogleGenAI({ apiKey: geminiKey });
 
         // Build the system prompt using the metadata
         const isSpanishBusiness = (business.language && business.language.startsWith('es')) ||

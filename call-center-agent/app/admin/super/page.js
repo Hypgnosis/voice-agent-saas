@@ -100,10 +100,12 @@ const EMPTY_AGENT = {
     voice_es: 'es-MX-DaliaNeural',
     language: 'auto',
     whatsapp_number_id: '',
+    whatsapp_access_token: '',
     timezone: 'America/Merida',
     calendar_api_key: '',
     calendar_id: '',
     event_type_id: '',
+    gemini_api_key: '',
 };
 
 
@@ -414,6 +416,27 @@ function Dashboard({ currentUser }) {
                                         <input type="text" value={newAgent.whatsapp_number_id} onChange={(e) => handleNewAgentChange('whatsapp_number_id', e.target.value)} placeholder="e.g. 123456789012345" className={IC + " pl-9 font-mono"} />
                                     </div>
                                 </div>
+                                <div>
+                                    <label className={LC}>WhatsApp Access Token (this client's own)</label>
+                                    <div className="relative">
+                                        <KeyRound size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
+                                        <input type="password" value={newAgent.whatsapp_access_token} onChange={(e) => handleNewAgentChange('whatsapp_access_token', e.target.value)} placeholder="EAAG... — leave blank to use platform default" className={IC + " pl-9 font-mono"} />
+                                    </div>
+                                    <p className="text-[10px] text-mercury/30 mt-1">Encrypted via AES-256-GCM. Each client should bring their own token so messaging is billed/rate-limited under their own Meta account.</p>
+                                </div>
+                            </div>
+
+                            {/* AI Credentials */}
+                            <div className="clinical-panel p-6 space-y-4">
+                                <h3 className="text-xs uppercase tracking-widest text-mercury/50 font-semibold mb-2 flex items-center gap-2"><KeyRound size={14} /> AI Credentials</h3>
+                                <div>
+                                    <label className={LC}>Gemini API Key (this client's own)</label>
+                                    <div className="relative">
+                                        <KeyRound size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
+                                        <input type="password" value={newAgent.gemini_api_key} onChange={(e) => handleNewAgentChange('gemini_api_key', e.target.value)} placeholder="AIzaSy... — leave blank to use platform default" className={IC + " pl-9 font-mono"} />
+                                    </div>
+                                    <p className="text-[10px] text-mercury/30 mt-1">Encrypted via AES-256-GCM. Each client should bring their own key so inference is billed/rate-limited under their own Google account.</p>
+                                </div>
                             </div>
 
                             {/* Description & Greeting */}
@@ -558,6 +581,31 @@ function Dashboard({ currentUser }) {
                                         <Phone size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
                                         <input type="text" value={selected.whatsapp_number_id || ''} onChange={(e) => handleChange('whatsapp_number_id', e.target.value)} placeholder="e.g. 123456789012345" className={IC + " pl-9 font-mono"} />
                                     </div>
+                                </div>
+                                <div>
+                                    <label className={LC}>WhatsApp Access Token (this client's own)</label>
+                                    <div className="relative">
+                                        <KeyRound size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
+                                        <input type="password" value={selected.integrations?.whatsapp_access_token || ''} onChange={(e) => { setSelected(prev => ({ ...prev, integrations: { ...prev.integrations, whatsapp_access_token: e.target.value } })); }} placeholder="Enter new token to replace" className={IC + " pl-9 font-mono"} />
+                                    </div>
+                                    <p className="text-[10px] text-mercury/30 mt-1">
+                                        {selected.integrations?.has_whatsapp_token ? '✅ Token configured (encrypted) — enter a new value to replace. Leave blank to use platform default.' : 'Not configured — using platform default token.'}
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* AI Credentials */}
+                            <div className="clinical-panel p-6 space-y-4">
+                                <h3 className="text-xs uppercase tracking-widest text-mercury/50 font-semibold mb-4 flex items-center gap-2"><KeyRound size={14} /> AI Credentials</h3>
+                                <div>
+                                    <label className={LC}>Gemini API Key (this client's own)</label>
+                                    <div className="relative">
+                                        <KeyRound size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
+                                        <input type="password" value={selected.integrations?.gemini_api_key || ''} onChange={(e) => { setSelected(prev => ({ ...prev, integrations: { ...prev.integrations, gemini_api_key: e.target.value } })); }} placeholder="Enter new key to replace" className={IC + " pl-9 font-mono"} />
+                                    </div>
+                                    <p className="text-[10px] text-mercury/30 mt-1">
+                                        {selected.integrations?.has_gemini_key ? '✅ Key configured (encrypted) — enter a new value to replace. Leave blank to use platform default.' : 'Not configured — using platform default key.'}
+                                    </p>
                                 </div>
                             </div>
 

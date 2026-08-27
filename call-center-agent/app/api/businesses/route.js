@@ -63,6 +63,8 @@ export async function GET(request) {
                     calendar_id: integrations?.calendar_id || '',
                     event_type_id: integrations?.event_type_id || '',
                     has_calendar_key: !!integrations?.calendar_api_key,
+                    has_gemini_key: !!integrations?.gemini_api_key,
+                    has_whatsapp_token: !!integrations?.whatsapp_access_token,
                 },
             });
         });
@@ -117,6 +119,8 @@ export async function POST(request) {
         const safeCalendarApiKey = sanitizeString(data.calendar_api_key);
         const safeCalendarId = sanitizeString(data.calendar_id);
         const safeEventTypeId = sanitizeEventTypeId(data.event_type_id);
+        const safeGeminiApiKey = sanitizeString(data.gemini_api_key);
+        const safeWhatsappAccessToken = sanitizeString(data.whatsapp_access_token);
 
         const docRef = await adminDb.collection('businesses').add({
             name: data.name,
@@ -132,10 +136,12 @@ export async function POST(request) {
             whatsapp_number_id: data.whatsapp_number_id || '',
             timezone: data.timezone || 'America/Merida',
             integrations: {
-                // Encrypt the calendar API key before persisting
+                // Encrypt sensitive live credentials before persisting
                 calendar_api_key: safeCalendarApiKey ? encrypt(safeCalendarApiKey) : '',
                 calendar_id: safeCalendarId,
                 event_type_id: safeEventTypeId,
+                gemini_api_key: safeGeminiApiKey ? encrypt(safeGeminiApiKey) : '',
+                whatsapp_access_token: safeWhatsappAccessToken ? encrypt(safeWhatsappAccessToken) : '',
             },
             // Zero-Trust: link business to the creating admin's UID
             // Can be overridden to assign to a specific client
