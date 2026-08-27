@@ -3,6 +3,19 @@ import { useState, useEffect, useRef } from 'react';
 import { Mic, Square, Volume2, VolumeX, MessageSquare } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
+const EXAMPLE_PROMPTS = {
+    en: [
+        { label: 'What are your hours?', text: 'What are your hours?' },
+        { label: 'Book an appointment', text: "I'd like to book an appointment." },
+        { label: 'What services do you offer?', text: 'What services do you offer?' },
+    ],
+    es: [
+        { label: '¿Cuál es su horario?', text: '¿Cuál es su horario?' },
+        { label: 'Agendar una cita', text: 'Me gustaría agendar una cita.' },
+        { label: '¿Qué servicios ofrecen?', text: '¿Qué servicios ofrecen?' },
+    ],
+};
+
 export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = '' }) {
     const [active, setActive] = useState(false);
     const [muted, setMuted] = useState(true);
@@ -29,6 +42,7 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
     const currentAgentTextRef = useRef('');
     const currentUserTextRef = useRef('');
     const chatEndRef = useRef(null);
+    const kickoffTextRef = useRef('Hello! Begin.');
 
     const logConversation = async (role, text, escalated = false) => {
         if (!text?.trim()) return;
@@ -154,11 +168,13 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
         setMessages(prev => [...prev, { id: uuidv4(), role, text, time: new Date() }]);
     };
 
-    const toggleAgent = async () => {
+    const toggleAgent = async (kickoffText) => {
         if (active) {
             stopAgent();
             return;
         }
+
+        kickoffTextRef.current = kickoffText || 'Hello! Begin.';
 
         if (!config || config.error) {
             setStatus('Config Error');
@@ -253,7 +269,7 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
             // Kickoff greeting
             console.log('[SovereignAgent] Session ready — sending kickoff...');
             wsRef.current.send(JSON.stringify({
-                clientContent: { turns: [{ role: "user", parts: [{ text: "Hello! Begin." }] }], turnComplete: true }
+                clientContent: { turns: [{ role: "user", parts: [{ text: kickoffTextRef.current }] }], turnComplete: true }
             }));
         };
 
@@ -498,6 +514,7 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
     }, []);
 
     const formatTime = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    const isSpanish = (config?.primary_lang || '').toLowerCase().startsWith('es');
 
     // Auto-scroll chat to bottom when messages update.
     // Guarded against the empty-state mount: scrollIntoView's default
@@ -543,9 +560,22 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
             <main className="flex-1 z-10 overflow-y-auto px-4 py-4">
                 <div className="max-w-2xl mx-auto space-y-4 flex flex-col">
                     {messages.length === 0 ? (
-                        <div className="m-auto text-center opacity-30 py-20">
-                            <MessageSquare size={40} className="mx-auto mb-3" />
-                            <p className="text-sm">Tap the microphone to start a conversation</p>
+                        <div className="m-auto text-center py-20 max-w-sm">
+                            <MessageSquare size={40} className="mx-auto mb-3 opacity-30" />
+                            <p className="text-sm opacity-30 mb-6">Tap the microphone to start a conversation</p>
+                            {!active && (
+                                <div className="flex flex-wrap justify-center gap-2">
+                                    {EXAMPLE_PROMPTS[isSpanish ? 'es' : 'en'].map((p) => (
+                                        <button
+                                            key={p.text}
+                                            onClick={() => toggleAgent(p.text)}
+                                            className="text-xs text-mercury/60 bg-white/5 hover:bg-archytech-violet/20 hover:text-mercury border border-white/10 hover:border-archytech-violet/30 rounded-full px-3.5 py-2 transition-colors"
+                                        >
+                                            {p.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     ) : (
                         messages.map((m) => (
@@ -594,7 +624,7 @@ export default function VoiceAgent({ slug = 'yo-te-cuido', parentInstructions = 
                 
                 <div className="flex items-center gap-4 relative z-10">
                     <button 
-                        onClick={toggleAgent}
+                        onClick={() => toggleAgent()}
                         className={`relative flex items-center justify-center rounded-full transition-all duration-300 ${
                             active 
                                 ? 'w-12 h-12 bg-red-500/20 text-red-400 hover:bg-red-500/30 ring-1 ring-red-500/50' 

@@ -2,10 +2,91 @@
 import { useState } from 'react';
 import Link from "next/link";
 import Image from "next/image";
-import { Terminal, Globe, ChevronRight, X, MessageCircle, Shield, Users, Zap, Calendar, Bot, Phone } from "lucide-react";
+import { Terminal, Globe, ChevronRight, X, MessageCircle, Shield, Users, Zap, Calendar, Bot, Phone, Check, Lock, KeyRound, FileCheck, Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
+
+const PRICING_TIERS = [
+  {
+    name: 'Starter',
+    price: '$249',
+    period: '/mo',
+    tagline: 'Try it with real customers, fast.',
+    features: [
+      '1 AI agent (voice + WhatsApp)',
+      'Platform-managed AI keys',
+      'Up to 500 conversations/mo',
+      'Cal.com booking integration',
+      'Email support',
+    ],
+    highlight: false,
+  },
+  {
+    name: 'Pro',
+    price: '$599',
+    period: '/mo',
+    tagline: 'For businesses running this for real.',
+    features: [
+      'Up to 5 AI agents',
+      'Bring your own Gemini & WhatsApp keys — no conversation caps',
+      'Cal.com booking integration',
+      'Custom knowledge base & voice personality',
+      'Priority support',
+    ],
+    highlight: true,
+  },
+  {
+    name: 'Enterprise',
+    price: 'Custom',
+    period: '',
+    tagline: 'Healthcare & regulated industries.',
+    features: [
+      'Unlimited agents',
+      'HIPAA-ready compliance tier (Vertex AI + signed BAA)',
+      'Dedicated onboarding & SLA',
+      'Dedicated account manager',
+      'Custom integrations',
+    ],
+    highlight: false,
+  },
+];
+
+const TRUST_POINTS = [
+  { icon: Lock, title: 'Zero-Trust Multi-Tenant', desc: 'Every request is authenticated and scoped to its own tenant — no client can ever see another’s data.' },
+  { icon: KeyRound, title: 'AES-256 Encrypted Credentials', desc: 'API keys and access tokens are encrypted at rest. Nothing sensitive is ever sent to the browser.' },
+  { icon: Shield, title: 'Bring Your Own Keys', desc: 'Run inference and messaging under your own Google and Meta accounts — your usage, your data, your bill.' },
+  { icon: FileCheck, title: 'HIPAA-Ready Tier Available', desc: 'A signed-BAA, Vertex AI-backed configuration for healthcare and regulated clients.' },
+];
 
 export default function Home() {
   const [showAgent, setShowAgent] = useState(false);
+  const [demoForm, setDemoForm] = useState({ name: '', email: '', company: '', message: '' });
+  const [demoStatus, setDemoStatus] = useState('idle'); // idle | submitting | success | error
+  const [demoError, setDemoError] = useState('');
+
+  const handleDemoChange = (field, value) => setDemoForm(prev => ({ ...prev, [field]: value }));
+
+  const submitDemoRequest = async (e) => {
+    e.preventDefault();
+    setDemoStatus('submitting');
+    setDemoError('');
+    try {
+      const res = await fetch('/api/demo-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(demoForm),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setDemoStatus('success');
+        setDemoForm({ name: '', email: '', company: '', message: '' });
+      } else {
+        setDemoStatus('error');
+        setDemoError(data.error || 'Something went wrong. Please try again.');
+      }
+    } catch {
+      setDemoStatus('error');
+      setDemoError('Network error. Please try again.');
+    }
+  };
 
   return (
     <main className="min-h-screen bg-obsidian text-mercury flex flex-col font-sans relative overflow-hidden">
@@ -29,6 +110,18 @@ export default function Home() {
           </div>
         </Link>
         <div className="flex items-center gap-4">
+          <a
+            href="#pricing"
+            className="text-sm font-semibold tracking-wide text-mercury/80 hover:text-archytech-violet transition-colors hidden md:block"
+          >
+            Pricing
+          </a>
+          <a
+            href="#demo"
+            className="text-sm font-semibold tracking-wide text-mercury/80 hover:text-archytech-violet transition-colors hidden md:block"
+          >
+            Book a Demo
+          </a>
           <button
             onClick={() => setShowAgent(true)}
             className="text-sm font-semibold tracking-wide text-mercury/80 hover:text-archytech-violet transition-colors flex items-center gap-2"
@@ -140,6 +233,146 @@ export default function Home() {
                 <p className="text-xs text-mercury/50 leading-relaxed">{desc}</p>
               </div>
             ))}
+          </div>
+        </div>
+
+        {/* Trust & Security */}
+        <div className="max-w-5xl w-full mt-20 mb-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {TRUST_POINTS.map(({ icon: Icon, title, desc }) => (
+              <div key={title} className="clinical-panel p-6 text-left">
+                <div className="w-10 h-10 rounded-xl bg-archytech-violet/10 flex items-center justify-center text-archytech-violet mb-4">
+                  <Icon size={20} />
+                </div>
+                <h4 className="text-sm font-bold mb-1.5">{title}</h4>
+                <p className="text-xs text-mercury/50 leading-relaxed">{desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Pricing */}
+        <div id="pricing" className="max-w-5xl w-full mt-20 mb-16 scroll-mt-24">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl font-bold tracking-tight mb-3 text-transparent bg-clip-text bg-gradient-to-r from-mercury to-mercury/60">Pricing</h2>
+            <p className="text-sm text-mercury/50 max-w-lg mx-auto">Every tier can bring its own AI keys — your inference costs scale with your clients, not against your margin.</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {PRICING_TIERS.map((tier) => (
+              <div
+                key={tier.name}
+                className={`clinical-panel p-8 text-left relative flex flex-col ${
+                  tier.highlight ? 'border-archytech-violet/50 shadow-[0_0_40px_rgba(139,92,246,0.15)]' : ''
+                }`}
+              >
+                {tier.highlight && (
+                  <span className="absolute -top-3 left-8 bg-archytech-violet text-white text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full">
+                    Most Popular
+                  </span>
+                )}
+                <h3 className="text-lg font-bold tracking-tight mb-1">{tier.name}</h3>
+                <p className="text-xs text-mercury/50 mb-6">{tier.tagline}</p>
+                <div className="mb-6">
+                  <span className="text-4xl font-extrabold tracking-tight">{tier.price}</span>
+                  <span className="text-sm text-mercury/50">{tier.period}</span>
+                </div>
+                <ul className="space-y-3 mb-8 flex-1">
+                  {tier.features.map((f) => (
+                    <li key={f} className="flex items-start gap-2.5 text-sm text-mercury/70">
+                      <Check size={16} className="text-archytech-violet shrink-0 mt-0.5" />
+                      <span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+                <a
+                  href="#demo"
+                  className={`text-center px-6 py-3 rounded-xl text-sm font-bold transition-all hover:scale-105 active:scale-95 ${
+                    tier.highlight
+                      ? 'bg-archytech-violet text-white shadow-[0_0_25px_rgba(139,92,246,0.3)] hover:shadow-[0_0_40px_rgba(139,92,246,0.5)]'
+                      : 'bg-mercury/10 text-mercury border border-mercury/20 hover:bg-mercury/20'
+                  }`}
+                >
+                  {tier.price === 'Custom' ? 'Contact Sales' : 'Book a Demo'}
+                </a>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Book a Demo */}
+        <div id="demo" className="max-w-2xl w-full mt-4 mb-16 scroll-mt-24">
+          <div className="clinical-panel p-8 md:p-10">
+            {demoStatus === 'success' ? (
+              <div className="text-center py-8">
+                <CheckCircle2 size={40} className="mx-auto mb-4 text-green-400" />
+                <h3 className="text-xl font-bold mb-2">Request received</h3>
+                <p className="text-sm text-mercury/60">We&apos;ll reach out within 24 hours to schedule your demo.</p>
+              </div>
+            ) : (
+              <>
+                <div className="text-center mb-8">
+                  <h2 className="text-2xl font-bold tracking-tight mb-2">Book a Demo</h2>
+                  <p className="text-sm text-mercury/50">Tell us about your business and we&apos;ll reach out to set up a walkthrough.</p>
+                </div>
+                <form onSubmit={submitDemoRequest} className="space-y-4 text-left">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs text-mercury/50 mb-1.5 font-medium uppercase tracking-wider">Name *</label>
+                      <input
+                        type="text"
+                        required
+                        value={demoForm.name}
+                        onChange={(e) => handleDemoChange('name', e.target.value)}
+                        className="w-full bg-obsidian border border-border-clinical rounded-lg px-3 py-2.5 text-sm text-mercury focus:border-archytech-violet/50 focus:outline-none transition-colors"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-mercury/50 mb-1.5 font-medium uppercase tracking-wider">Company *</label>
+                      <input
+                        type="text"
+                        required
+                        value={demoForm.company}
+                        onChange={(e) => handleDemoChange('company', e.target.value)}
+                        className="w-full bg-obsidian border border-border-clinical rounded-lg px-3 py-2.5 text-sm text-mercury focus:border-archytech-violet/50 focus:outline-none transition-colors"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-mercury/50 mb-1.5 font-medium uppercase tracking-wider">Email *</label>
+                    <input
+                      type="email"
+                      required
+                      value={demoForm.email}
+                      onChange={(e) => handleDemoChange('email', e.target.value)}
+                      className="w-full bg-obsidian border border-border-clinical rounded-lg px-3 py-2.5 text-sm text-mercury focus:border-archytech-violet/50 focus:outline-none transition-colors"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-mercury/50 mb-1.5 font-medium uppercase tracking-wider">What are you looking to automate? (optional)</label>
+                    <textarea
+                      rows={3}
+                      value={demoForm.message}
+                      onChange={(e) => handleDemoChange('message', e.target.value)}
+                      className="w-full bg-obsidian border border-border-clinical rounded-lg px-3 py-2.5 text-sm text-mercury focus:border-archytech-violet/50 focus:outline-none transition-colors resize-none"
+                    />
+                  </div>
+                  {demoStatus === 'error' && (
+                    <div className="flex items-center gap-2 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+                      <AlertTriangle size={14} />
+                      {demoError}
+                    </div>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={demoStatus === 'submitting'}
+                    className="w-full bg-archytech-violet text-white px-6 py-3.5 rounded-xl text-sm font-bold shadow-[0_0_25px_rgba(139,92,246,0.3)] hover:shadow-[0_0_40px_rgba(139,92,246,0.5)] transition-all hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 flex items-center justify-center gap-2"
+                  >
+                    {demoStatus === 'submitting' ? <Loader2 size={16} className="animate-spin" /> : <ChevronRight size={16} />}
+                    {demoStatus === 'submitting' ? 'Sending...' : 'Request Demo'}
+                  </button>
+                </form>
+              </>
+            )}
           </div>
         </div>
 

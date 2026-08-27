@@ -140,6 +140,9 @@ function Dashboard({ currentUser }) {
     const [apiError, setApiError] = useState(null);
     const [logs, setLogs] = useState([]);
     const [logsLoading, setLogsLoading] = useState(false);
+    const [viewingDemoRequests, setViewingDemoRequests] = useState(false);
+    const [demoRequests, setDemoRequests] = useState([]);
+    const [demoRequestsLoading, setDemoRequestsLoading] = useState(false);
 
     /**
      * Returns a fresh Firebase ID Token for API calls.
@@ -196,8 +199,31 @@ function Dashboard({ currentUser }) {
 
     const handleSelect = (biz) => {
         setCreating(false);
+        setViewingDemoRequests(false);
         setSelected({ ...biz });
         fetchLogs(biz.id);
+    };
+
+    const openDemoRequests = () => {
+        setCreating(false);
+        setSelected(null);
+        setViewingDemoRequests(true);
+        fetchDemoRequests();
+    };
+
+    const fetchDemoRequests = async () => {
+        setDemoRequestsLoading(true);
+        try {
+            const token = await getToken();
+            const res = await fetch('/api/demo-requests', {
+                headers: { 'Authorization': `Bearer ${token}` },
+            });
+            const data = await res.json();
+            setDemoRequests(Array.isArray(data) ? data : []);
+        } catch (e) {
+            showToast('Failed to load demo requests', 'error');
+        }
+        setDemoRequestsLoading(false);
     };
 
     const handleChange = useCallback((field, value) => {
@@ -276,6 +302,7 @@ function Dashboard({ currentUser }) {
 
     const openCreateForm = () => {
         setSelected(null);
+        setViewingDemoRequests(false);
         setCreating(true);
         setNewAgent({ ...EMPTY_AGENT });
     };
@@ -339,6 +366,16 @@ function Dashboard({ currentUser }) {
                         >
                             <Plus size={16} /> Create New Agent
                         </button>
+                        <button
+                            onClick={openDemoRequests}
+                            className={`w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-semibold transition-colors mt-2 ${
+                                viewingDemoRequests
+                                    ? 'bg-archytech-violet/10 text-archytech-violet border border-archytech-violet/30'
+                                    : 'bg-white/5 text-mercury/70 border border-white/10 hover:bg-white/10'
+                            }`}
+                        >
+                            <MessageSquare size={16} /> Demo Requests
+                        </button>
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-4">
@@ -387,7 +424,40 @@ function Dashboard({ currentUser }) {
 
                 {/* Main Content */}
                 <section className="flex-1 overflow-y-auto p-8">
-                    {creating ? (
+                    {viewingDemoRequests ? (
+                        /* ─── DEMO REQUESTS ─── */
+                        <div className="max-w-3xl mx-auto space-y-6">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h2 className="text-2xl font-bold tracking-tight">Demo Requests</h2>
+                                    <p className="text-sm text-mercury/50 mt-1">Leads captured from the landing page &quot;Request a Demo&quot; form.</p>
+                                </div>
+                                <button onClick={fetchDemoRequests} disabled={demoRequestsLoading} className="text-xs text-archytech-violet hover:text-archytech-violet/80 underline flex items-center gap-1">
+                                    {demoRequestsLoading ? <Loader2 size={12} className="animate-spin" /> : <Clock size={12} />} Refresh
+                                </button>
+                            </div>
+                            {demoRequestsLoading && demoRequests.length === 0 ? (
+                                <div className="flex justify-center py-12 text-mercury/40"><Loader2 size={20} className="animate-spin" /></div>
+                            ) : demoRequests.length === 0 ? (
+                                <div className="text-center py-16 text-mercury/40 text-sm">No demo requests yet.</div>
+                            ) : (
+                                <div className="space-y-3">
+                                    {demoRequests.map((req) => (
+                                        <div key={req.id} className="clinical-panel p-5 space-y-2">
+                                            <div className="flex items-center justify-between">
+                                                <div>
+                                                    <p className="text-sm font-semibold">{req.name} <span className="text-mercury/40 font-normal">— {req.company}</span></p>
+                                                    <a href={`mailto:${req.email}`} className="text-xs text-archytech-violet hover:underline">{req.email}</a>
+                                                </div>
+                                                <span className="text-[10px] text-mercury/40 uppercase tracking-wider whitespace-nowrap">{req.created_at ? new Date(req.created_at).toLocaleString() : ''}</span>
+                                            </div>
+                                            {req.message && <p className="text-sm text-mercury/70 leading-relaxed pt-1 border-t border-white/5 mt-2">{req.message}</p>}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    ) : creating ? (
                         /* ─── CREATE NEW AGENT FORM ─── */
                         <div className="max-w-3xl mx-auto space-y-8">
                             <div>
