@@ -94,6 +94,7 @@ const EMPTY_AGENT = {
     name: '',
     slug: '',
     description: '',
+    phone_number: '',
     knowledge_base: '',
     greeting: 'Hello, thank you for calling. How can I assist you today?',
     voice_en: 'en-US-AriaNeural',
@@ -480,6 +481,14 @@ function Dashboard({ currentUser }) {
                                     </div>
                                 </div>
                                 <div>
+                                    <label className={LC}>Business Phone Number</label>
+                                    <div className="relative">
+                                        <Phone size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
+                                        <input type="text" value={newAgent.phone_number} onChange={(e) => handleNewAgentChange('phone_number', e.target.value)} placeholder="e.g. +1 (555) 123-4567" className={IC + " pl-9 font-mono"} />
+                                    </div>
+                                    <p className="text-[10px] text-mercury/30 mt-1">The number the agent offers callers when it can&apos;t help and needs to hand off to a human. Leave blank to just say the team will follow up.</p>
+                                </div>
+                                <div>
                                     <label className={LC}>Meta WhatsApp Phone Number ID</label>
                                     <div className="relative">
                                         <Phone size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
@@ -639,6 +648,14 @@ function Dashboard({ currentUser }) {
                                 <div>
                                     <label className={LC}>Greeting Message</label>
                                     <textarea rows={2} value={selected.greeting || ''} onChange={(e) => handleChange('greeting', e.target.value)} className={IC + " resize-none"} />
+                                </div>
+                                <div>
+                                    <label className={LC}>Business Phone Number</label>
+                                    <div className="relative">
+                                        <Phone size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-mercury/30" />
+                                        <input type="text" value={selected.phone_number || ''} onChange={(e) => handleChange('phone_number', e.target.value)} placeholder="e.g. +1 (555) 123-4567" className={IC + " pl-9 font-mono"} />
+                                    </div>
+                                    <p className="text-[10px] text-mercury/30 mt-1">The number the agent offers callers when it can&apos;t help and needs to hand off to a human. Leave blank to just say the team will follow up.</p>
                                 </div>
                             </div>
 
