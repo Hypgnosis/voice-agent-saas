@@ -7,11 +7,9 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { NextResponse } from 'next/server';
-import { randomUUID } from 'crypto';
 import { adminDb } from '@/lib/firebase/admin';
 import { verifyBusinessAccess, handleAuthError } from '@/lib/auth/verifySession';
 import { encrypt } from '@/lib/crypto/vault';
-import { authorize } from '@/lib/archytanLite';
 
 export const dynamic = 'force-dynamic';
 
@@ -75,31 +73,6 @@ export async function PUT(request, { params }) {
         for (let field of allowedFields) {
             if (data[field] !== undefined) {
                 updateData[field] = data[field];
-            }
-        }
-
-        // ── Archytan Lite gate: high-risk fields require a signed authorization ──
-        // "Deleting" a business here is a soft delete (active:false), and the
-        // AI's live system prompt is knowledge_base/greeting — both go through
-        // this same PUT. A denial from the gate (including the gate being
-        // unreachable) blocks the write entirely; see lib/archytanLite.js for
-        // the fail-closed contract.
-        const isSoftDelete = data.active === false && doc.data().active !== false;
-        const isPromptEdit = data.knowledge_base !== undefined || data.greeting !== undefined;
-
-        if (isSoftDelete || isPromptEdit) {
-            const gate = await authorize({
-                action: isSoftDelete ? 'business.delete' : 'business.prompt_edit',
-                actor: { uid: session.uid, role: session.role, email: session.email },
-                resource: { type: 'business', id: bid },
-                idempotencyKey: randomUUID(),
-            });
-
-            if (!gate.allowed) {
-                return NextResponse.json(
-                    { error: 'This change requires authorization and was denied.' },
-                    { status: 403 }
-                );
             }
         }
 
